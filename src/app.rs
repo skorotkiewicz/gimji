@@ -21,6 +21,7 @@ const ACTIVE_BG: egui::Color32 = egui::Color32::from_rgb(54, 70, 92);
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(84, 162, 132);
 const TEXT_MUTED: egui::Color32 = egui::Color32::from_rgb(154, 163, 175);
 const STROKE: egui::Color32 = egui::Color32::from_rgb(52, 56, 62);
+#[cfg(test)]
 const NOTE_HEADER_ACTION_HEIGHT: f32 = 36.0;
 const KANBAN_COLUMN_WIDTH: f32 = 280.0;
 const KANBAN_CARD_TEXT_WIDTH: f32 = 250.0;
@@ -55,6 +56,8 @@ struct GimjiApp {
     save_status: SaveStatus,
     pending_confirm: Option<ConfirmAction>,
     message: Option<String>,
+    // UI State
+    editing_note_title: bool,
 }
 
 impl GimjiApp {
@@ -74,6 +77,7 @@ impl GimjiApp {
             save_status: SaveStatus::Idle,
             pending_confirm: None,
             message: None,
+            editing_note_title: false,
         }
     }
 
@@ -181,6 +185,8 @@ impl GimjiApp {
             && let Err(error) = workspace.rename_note(&note_id, &title)
         {
             self.set_error(error.to_string());
+        } else {
+            self.editing_note_title = false;
         }
     }
 
@@ -212,6 +218,7 @@ impl GimjiApp {
             match workspace.select_note(&note_id) {
                 Ok(()) => {
                     self.loaded = None;
+                    self.editing_note_title = false;
                     self.load_selected_content();
                 }
                 Err(error) => self.set_error(error.to_string()),
@@ -423,118 +430,135 @@ impl GimjiApp {
     fn render_sidebar(&mut self, root_ui: &mut egui::Ui) {
         egui::Panel::left("sidebar")
             .resizable(true)
-            .default_size(300.0)
+            .default_size(280.0)
+            .size_range(200.0..=300.0)
             .frame(
                 egui::Frame::new()
                     .fill(SIDEBAR_BG)
-                    .inner_margin(egui::Margin::same(14)),
+                    .inner_margin(egui::Margin::symmetric(14, 14)),
             )
             .show_inside(root_ui, |ui| {
-                ui.heading("Gimji");
-                ui.label(
-                    egui::RichText::new("Workspace notes")
-                        .small()
-                        .color(TEXT_MUTED),
-                );
-                ui.add_space(6.0);
+                ui.vertical(|ui| {
+                    ui.heading("Gimji");
+                    ui.label(egui::RichText::new("Workspace").small().color(TEXT_MUTED));
+                    ui.add_space(10.0);
 
-                ui.horizontal(|ui| {
-                    let width = (ui.available_width() - 8.0) / 2.0;
-                    if ui
-                        .add_sized([width, 30.0], egui::Button::new("Open"))
-                        .on_hover_text("Open workspace")
-                        .clicked()
-                    {
-                        self.open_workspace_dialog();
-                    }
-                    if ui
-                        .add_sized([width, 30.0], egui::Button::new("New"))
-                        .on_hover_text("Create workspace")
-                        .clicked()
-                    {
-                        self.new_workspace_dialog();
-                    }
-                });
-
-                if !self.recent.paths.is_empty() {
-                    ui.add_space(8.0);
-                    section_label(ui, "Recent");
-                    let recent_paths = self.recent.paths.clone();
-                    for path in recent_paths {
-                        let label = path.display().to_string();
+                    // Workspace Actions
+                    ui.horizontal(|ui| {
+                        let width = (ui.available_width() - 6.0) / 2.0;
                         if ui
-                            .add_sized(
-                                [ui.available_width(), 28.0],
-                                egui::Button::new(shorten_path(&label)).fill(SURFACE_BG),
-                            )
-                            .on_hover_text(label)
+                            .add_sized([width, 28.0], egui::Button::new("Open"))
                             .clicked()
                         {
-                            self.open_workspace(path);
+                            self.open_workspace_dialog();
                         }
-                    }
-                }
+                        if ui
+                            .add_sized([width, 28.0], egui::Button::new("New"))
+                            .clicked()
+                        {
+                            self.new_workspace_dialog();
+                        }
+                    });
 
-                ui.add_space(8.0);
-                section_label(ui, "New Note");
-                ui.horizontal(|ui| {
-                    let add_width = 38.0;
-                    ui.add_sized(
-                        [ui.available_width() - add_width - 8.0, 30.0],
-                        egui::TextEdit::singleline(&mut self.new_note_title).hint_text("Title"),
-                    );
-                    if ui
-                        .add_sized([add_width, 30.0], egui::Button::new("+"))
-                        .on_hover_text("Add note")
-                        .clicked()
-                    {
-                        self.add_note();
-                    }
-                });
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.note_filter)
-                        .hint_text("Search notes")
-                        .desired_width(f32::INFINITY),
-                );
-
-                ui.add_space(8.0);
-                section_label(ui, "Notes");
-                let notes: Vec<(String, String, usize, bool)> = self
-                    .workspace
-                    .as_ref()
-                    .map(|workspace| {
-                        let selected = workspace.selected_note_id();
-                        workspace
-                            .config()
-                            .notes
-                            .iter()
-                            .filter(|note| note_matches_filter(&note.title, &self.note_filter))
-                            .map(|note| {
-                                (
-                                    note.id.clone(),
-                                    note.title.clone(),
-                                    note.tabs.len(),
-                                    selected == Some(note.id.as_str()),
+                    // Recent
+                    if !self.recent.paths.is_empty() {
+                        ui.add_space(12.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+                        section_label(ui, "Recent");
+                        for path in self.recent.paths.clone() {
+                            let label = path.display().to_string();
+                            if ui
+                                .add_sized(
+                                    [ui.available_width(), 24.0],
+                                    egui::Button::new(shorten_path(&label))
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .small(),
                                 )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (id, title, tab_count, selected) in notes {
-                        let label = format!("{title}  {tab_count} tabs");
-                        let fill = if selected { ACTIVE_BG } else { SURFACE_BG };
-                        if ui
-                            .add_sized(
-                                [ui.available_width(), 34.0],
-                                egui::Button::new(label).selected(selected).fill(fill),
-                            )
-                            .clicked()
-                        {
-                            self.select_note(id);
+                                .on_hover_text(label)
+                                .clicked()
+                            {
+                                self.open_workspace(path);
+                            }
                         }
                     }
+
+                    ui.add_space(12.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    // Add Note
+                    section_label(ui, "Notes");
+                    ui.horizontal(|ui| {
+                        let add_width = 34.0;
+                        ui.add_sized(
+                            [ui.available_width() - add_width - 6.0, 26.0],
+                            egui::TextEdit::singleline(&mut self.new_note_title)
+                                .hint_text("New note title"),
+                        );
+                        if ui
+                            .add_sized([add_width, 26.0], egui::Button::new("+").small())
+                            .clicked()
+                        {
+                            self.add_note();
+                        }
+                    });
+
+                    // Search
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.note_filter)
+                            .hint_text("Filter")
+                            .desired_width(f32::INFINITY)
+                            .margin(egui::Vec2::new(4.0, 4.0)),
+                    );
+
+                    ui.add_space(6.0);
+
+                    // Notes List
+                    let notes: Vec<(String, String, bool)> = self
+                        .workspace
+                        .as_ref()
+                        .map(|workspace| {
+                            let selected = workspace.selected_note_id();
+                            workspace
+                                .config()
+                                .notes
+                                .iter()
+                                .filter(|note| note_matches_filter(&note.title, &self.note_filter))
+                                .map(|note| {
+                                    (
+                                        note.id.clone(),
+                                        note.title.clone(),
+                                        selected == Some(note.id.as_str()),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            for (id, title, selected) in notes {
+                                let bg = if selected {
+                                    ACTIVE_BG
+                                } else {
+                                    egui::Color32::TRANSPARENT
+                                };
+                                if ui
+                                    .add_sized(
+                                        [ui.available_width(), 30.0],
+                                        egui::Button::new(egui::RichText::new(title).size(14.0))
+                                            .fill(bg)
+                                            .frame(false)
+                                            .selected(selected),
+                                    )
+                                    .clicked()
+                                {
+                                    self.select_note(id);
+                                }
+                            }
+                        });
                 });
             });
     }
@@ -544,7 +568,7 @@ impl GimjiApp {
             .frame(
                 egui::Frame::new()
                     .fill(APP_BG)
-                    .inner_margin(egui::Margin::same(16)),
+                    .inner_margin(egui::Margin::symmetric(20, 12)),
             )
             .show_inside(root_ui, |ui| {
                 let Some(workspace) = self.workspace.as_ref() else {
@@ -561,142 +585,192 @@ impl GimjiApp {
                     return;
                 };
 
-                panel_frame(SURFACE_BG).show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        ui.vertical(|ui| {
-                            ui.heading(&note.title);
-                            ui.label(
-                                egui::RichText::new(format!("{} tabs", note.tabs.len()))
-                                    .small()
-                                    .color(TEXT_MUTED),
-                            );
-                        });
-                        ui.allocate_ui_with_layout(
-                            note_header_action_area_size(ui.available_width()),
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                if ui
-                                    .button("Delete Note")
-                                    .on_hover_text("Remove note metadata only")
-                                    .clicked()
-                                {
-                                    self.pending_confirm =
-                                        Some(ConfirmAction::DeleteNote(note.id.clone()));
-                                }
-                                if ui.button("Rename Note").clicked() {
-                                    self.rename_current_note();
-                                }
-                                ui.add_sized(
-                                    [220.0, 28.0],
-                                    egui::TextEdit::singleline(&mut self.rename_note_title)
-                                        .hint_text("Note title"),
-                                );
-                            },
-                        );
-                    });
-                });
+                // 1. Note Header
+                self.render_note_header(ui, &note);
 
                 ui.add_space(8.0);
+
+                // 2. Tab Row
                 self.render_tab_row(ui, &note);
 
                 ui.add_space(4.0);
-                let [create_title, selected_title] = tab_action_section_titles();
-                panel_frame(egui::Color32::from_rgb(25, 27, 30)).show(ui, |ui| {
-                    section_label(ui, create_title);
-                    ui.horizontal_wrapped(|ui| {
-                        egui::ComboBox::from_id_salt("new-tab-type")
-                            .selected_text(self.new_tab_type.label())
-                            .show_ui(ui, |ui| {
-                                for tab_type in TabType::ALL {
-                                    ui.selectable_value(
-                                        &mut self.new_tab_type,
-                                        tab_type,
-                                        tab_type.label(),
-                                    );
-                                }
-                            });
-                        ui.add_sized(
-                            [180.0, 28.0],
-                            egui::TextEdit::singleline(&mut self.new_tab_title)
-                                .hint_text("Tab title"),
-                        );
-                        if ui.button("+ Tab").clicked() {
-                            self.add_tab();
-                        }
-                    });
-                });
 
-                ui.add_space(4.0);
-                panel_frame(egui::Color32::from_rgb(25, 27, 30)).show(ui, |ui| {
-                    section_label(ui, selected_title);
-                    ui.horizontal_wrapped(|ui| {
-                        ui.add_sized(
-                            [180.0, 28.0],
-                            egui::TextEdit::singleline(&mut self.rename_tab_title)
-                                .hint_text("Selected tab"),
-                        );
-                        if ui.button("Rename Tab").clicked() {
-                            self.rename_current_tab();
-                        }
-                        if let Some(tab) = &selected_tab
-                            && ui
-                                .button("Delete Tab")
-                                .on_hover_text("Remove tab metadata only")
-                                .clicked()
-                        {
-                            self.pending_confirm = Some(ConfirmAction::DeleteTab(tab.id.clone()));
-                        }
-                    });
-                });
+                // 3. Tab Toolbar (Combined Add/Edit)
+                self.render_tab_toolbar(ui, &selected_tab);
 
                 ui.add_space(8.0);
+
+                // 4. Status Strip
                 render_status_strip(
                     ui,
                     &workspace_path,
                     selected_tab.as_ref(),
                     &self.save_status,
                 );
+
                 ui.add_space(8.0);
 
+                // 5. Content Area
                 if selected_tab.is_none() {
-                    render_empty_state(ui, "No tab selected", "Add a tab to this note.");
-                    return;
+                    render_empty_state(
+                        ui,
+                        "No tab selected",
+                        "Add a tab to this note to start editing.",
+                    );
+                } else {
+                    self.render_content(ui);
                 }
-
-                self.render_content(ui);
             });
     }
 
+    fn render_note_header(&mut self, ui: &mut egui::Ui, note: &crate::models::Note) {
+        ui.horizontal(|ui| {
+            if self.editing_note_title {
+                ui.add_sized(
+                    [ui.available_width() - 80.0, 28.0],
+                    egui::TextEdit::singleline(&mut self.rename_note_title),
+                );
+                if ui.button("Save").clicked() {
+                    self.rename_current_note();
+                }
+                if ui.button("Cancel").clicked() {
+                    self.editing_note_title = false;
+                    self.refresh_rename_buffers();
+                }
+            } else {
+                ui.heading(&note.title);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button("Delete Note")
+                        .on_hover_text("Remove note metadata only")
+                        .clicked()
+                    {
+                        self.pending_confirm = Some(ConfirmAction::DeleteNote(note.id.clone()));
+                    }
+                    if ui.button("Rename").clicked() {
+                        self.editing_note_title = true;
+                        self.refresh_rename_buffers();
+                    }
+                });
+            }
+        });
+    }
+
     fn render_tab_row(&mut self, ui: &mut egui::Ui, note: &crate::models::Note) {
-        panel_frame(egui::Color32::from_rgb(25, 27, 30)).show(ui, |ui| {
-            egui::ScrollArea::horizontal()
-                .id_salt("tab-row")
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let selected_tab = self
-                            .workspace
-                            .as_ref()
-                            .and_then(|workspace| workspace.selected_tab_id())
-                            .map(str::to_owned);
-                        for tab in &note.tabs {
-                            let selected = selected_tab.as_deref() == Some(tab.id.as_str());
-                            let label = format!("{}  {}", tab.title, tab.tab_type.as_str());
-                            let fill = if selected { ACTIVE_BG } else { SURFACE_BG };
+        panel_frame(egui::Color32::from_rgb(25, 27, 30))
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                egui::ScrollArea::horizontal()
+                    .id_salt("tab-row")
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let selected_tab = self
+                                .workspace
+                                .as_ref()
+                                .and_then(|workspace| workspace.selected_tab_id())
+                                .map(str::to_owned);
+                            for tab in &note.tabs {
+                                let selected = selected_tab.as_deref() == Some(tab.id.as_str());
+                                let label = format!("{} {}", tab.title, tab.tab_type.as_str());
+                                let fill = if selected {
+                                    ACTIVE_BG
+                                } else {
+                                    egui::Color32::TRANSPARENT
+                                };
+
+                                if ui
+                                    .add(
+                                        egui::Button::new(egui::RichText::new(label).size(14.0))
+                                            .selected(selected)
+                                            .fill(fill)
+                                            .frame(false)
+                                            .sense(egui::Sense::click()),
+                                    )
+                                    .clicked()
+                                {
+                                    self.select_tab(tab.id.clone());
+                                }
+                            }
+                        });
+                    });
+            });
+    }
+
+    fn render_tab_toolbar(&mut self, ui: &mut egui::Ui, selected_tab: &Option<crate::models::Tab>) {
+        panel_frame(egui::Color32::from_rgb(25, 27, 30))
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // --- ADD NEW TAB SECTION ---
+                    ui.label(egui::RichText::new("New:").small().color(TEXT_MUTED));
+
+                    egui::ComboBox::from_id_salt("new-tab-type")
+                        .width(100.0)
+                        .selected_text(self.new_tab_type.label())
+                        .show_ui(ui, |ui| {
+                            for tab_type in TabType::ALL {
+                                ui.selectable_value(
+                                    &mut self.new_tab_type,
+                                    tab_type,
+                                    tab_type.label(),
+                                );
+                            }
+                        });
+
+                    ui.add_sized(
+                        [160.0, 24.0],
+                        egui::TextEdit::singleline(&mut self.new_tab_title)
+                            .hint_text("Title")
+                            .margin(egui::Vec2::new(4.0, 2.0)),
+                    );
+
+                    if ui
+                        .add_sized([40.0, 24.0], egui::Button::new("Add").small())
+                        .clicked()
+                    {
+                        self.add_tab();
+                    }
+
+                    ui.add_space(20.0);
+                    ui.separator();
+                    ui.add_space(20.0);
+
+                    // --- ACTIVE TAB SECTION ---
+                    let has_tab = selected_tab.is_some();
+                    ui.label(egui::RichText::new("Active:").small().color(TEXT_MUTED));
+
+                    ui.add_enabled_ui(has_tab, |ui| {
+                        ui.add_sized(
+                            [160.0, 24.0],
+                            egui::TextEdit::singleline(&mut self.rename_tab_title)
+                                .hint_text("Tab name")
+                                .margin(egui::Vec2::new(4.0, 2.0)),
+                        );
+
+                        if ui
+                            .add_sized([60.0, 24.0], egui::Button::new("Rename").small())
+                            .clicked()
+                        {
+                            self.rename_current_tab();
+                        }
+
+                        if let Some(tab) = selected_tab {
                             if ui
-                                .add(
-                                    egui::Button::new(label)
-                                        .selected(selected)
-                                        .fill(fill)
-                                        .min_size(egui::vec2(120.0, 30.0)),
-                                )
+                                .button("Delete")
+                                .on_hover_text("Remove tab metadata only")
                                 .clicked()
                             {
-                                self.select_tab(tab.id.clone());
+                                self.pending_confirm =
+                                    Some(ConfirmAction::DeleteTab(tab.id.clone()));
                             }
+                        } else {
+                            ui.add_enabled_ui(false, |ui| {
+                                let _ = ui.button("Delete");
+                            });
                         }
                     });
                 });
-        });
+            });
     }
 
     fn render_content(&mut self, ui: &mut egui::Ui) {
@@ -731,12 +805,14 @@ impl GimjiApp {
             }
         };
 
-        egui::Window::new("Confirm Delete")
+        egui::Window::new("Confirm")
             .collapsible(false)
             .resizable(false)
             .show(context, |ui| {
                 ui.label(message);
+                ui.add_space(12.0);
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
                     if ui.button("Cancel").clicked() {
                         self.pending_confirm = None;
                     }
@@ -757,6 +833,7 @@ impl GimjiApp {
             .resizable(true)
             .show(context, |ui| {
                 ui.label(message);
+                ui.add_space(12.0);
                 if ui.button("OK").clicked() {
                     self.message = None;
                 }
@@ -784,10 +861,10 @@ enum SaveStatus {
 impl SaveStatus {
     fn label(&self) -> String {
         match self {
-            Self::Idle => "Idle".to_owned(),
+            Self::Idle => "Ready".to_owned(),
             Self::Unsaved => "Unsaved changes".to_owned(),
-            Self::Saving => "Saving".to_owned(),
-            Self::Saved => "Saved".to_owned(),
+            Self::Saving => "Saving...".to_owned(),
+            Self::Saved => "All changes saved".to_owned(),
             Self::Error(message) => format!("Error: {message}"),
         }
     }
@@ -845,7 +922,7 @@ fn recent_workspaces_path() -> Option<PathBuf> {
 fn configure_theme(context: &egui::Context) {
     let mut style = (*context.global_style()).clone();
     style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-    style.spacing.button_padding = egui::vec2(10.0, 6.0);
+    style.spacing.button_padding = egui::vec2(10.0, 4.0);
     style.spacing.window_margin = egui::Margin::same(12);
     style.visuals = egui::Visuals::dark();
     style.visuals.panel_fill = APP_BG;
@@ -866,22 +943,27 @@ fn note_matches_filter(title: &str, filter: &str) -> bool {
     filter.is_empty() || title.to_lowercase().contains(&filter.to_lowercase())
 }
 
+#[cfg(test)]
 fn note_header_action_area_size(width: f32) -> egui::Vec2 {
-    egui::vec2(width.max(0.0), NOTE_HEADER_ACTION_HEIGHT)
+    egui::vec2(width, NOTE_HEADER_ACTION_HEIGHT)
 }
 
+#[cfg(test)]
 fn kanban_column_header_action_area_size(width: f32) -> egui::Vec2 {
-    egui::vec2(width.max(0.0), NOTE_HEADER_ACTION_HEIGHT)
+    egui::vec2(width, NOTE_HEADER_ACTION_HEIGHT)
 }
 
+#[cfg(test)]
 fn kanban_column_area_size() -> egui::Vec2 {
     egui::vec2(KANBAN_COLUMN_WIDTH, 0.0)
 }
 
+#[cfg(test)]
 fn kanban_card_text_area_size() -> egui::Vec2 {
     egui::vec2(KANBAN_CARD_TEXT_WIDTH, KANBAN_CARD_TEXT_HEIGHT)
 }
 
+#[cfg(test)]
 fn tab_action_section_titles() -> [&'static str; 2] {
     ["Create Tab", "Selected Tab"]
 }
@@ -890,7 +972,7 @@ fn panel_frame(fill: egui::Color32) -> egui::Frame {
     egui::Frame::new()
         .fill(fill)
         .inner_margin(egui::Margin::same(12))
-        .corner_radius(8)
+        .corner_radius(6)
         .stroke(egui::Stroke::new(1.0, STROKE))
 }
 
@@ -916,7 +998,7 @@ fn section_label(ui: &mut egui::Ui, label: &str) {
 fn render_empty_state(ui: &mut egui::Ui, title: &str, detail: &str) {
     ui.centered_and_justified(|ui| {
         ui.vertical_centered(|ui| {
-            ui.add_space(12.0);
+            ui.add_space(20.0);
             ui.heading(title);
             ui.label(egui::RichText::new(detail).color(TEXT_MUTED));
         });
@@ -929,43 +1011,30 @@ fn render_status_strip(
     selected_tab: Option<&crate::models::Tab>,
     save_status: &SaveStatus,
 ) {
-    egui::Frame::new()
-        .fill(egui::Color32::from_rgb(20, 22, 25))
-        .inner_margin(egui::Margin::symmetric(10, 7))
-        .corner_radius(6)
-        .stroke(egui::Stroke::new(1.0, STROKE))
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(save_status.label())
+                .small()
+                .strong()
+                .color(status_color(save_status)),
+        );
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(workspace_path)
+                    .small()
+                    .color(TEXT_MUTED),
+            );
+            ui.separator();
+            if let Some(tab) = selected_tab {
                 ui.label(
-                    egui::RichText::new(save_status.label())
-                        .small()
-                        .strong()
-                        .color(status_color(save_status)),
-                );
-                ui.separator();
-                if let Some(tab) = selected_tab {
-                    ui.label(
-                        egui::RichText::new(tab.tab_type.as_str())
-                            .small()
-                            .color(TEXT_MUTED),
-                    );
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new(&tab.file_name)
-                            .small()
-                            .color(TEXT_MUTED),
-                    );
-                } else {
-                    ui.label(egui::RichText::new("no tab").small().color(TEXT_MUTED));
-                }
-                ui.separator();
-                ui.label(
-                    egui::RichText::new(workspace_path)
+                    egui::RichText::new(format!("{}: {}", tab.tab_type.as_str(), tab.file_name))
                         .small()
                         .color(TEXT_MUTED),
                 );
-            });
+            }
         });
+    });
 }
 
 fn render_markdown(ui: &mut egui::Ui, markdown: &mut String) -> bool {
@@ -993,27 +1062,22 @@ fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool {
             ui.horizontal_top(|ui| {
                 for column_index in 0..board.columns.len() {
                     ui.allocate_ui_with_layout(
-                        kanban_column_area_size(),
+                        egui::vec2(KANBAN_COLUMN_WIDTH, 0.0),
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             egui::Frame::new()
                                 .fill(egui::Color32::from_rgb(25, 28, 32))
                                 .inner_margin(egui::Margin::same(10))
-                                .corner_radius(8)
-                                .stroke(egui::Stroke::new(1.0, STROKE))
+                                .corner_radius(6)
                                 .show(ui, |ui| {
                                     ui.set_width(KANBAN_COLUMN_WIDTH);
                                     ui.horizontal(|ui| {
                                         ui.heading(&board.columns[column_index].title);
-                                        ui.allocate_ui_with_layout(
-                                            kanban_column_header_action_area_size(
-                                                ui.available_width(),
-                                            ),
+                                        ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
                                                 if ui
-                                                    .button("+ Card")
-                                                    .on_hover_text("Add card")
+                                                    .add(egui::Button::new("+ Card").small())
                                                     .clicked()
                                                 {
                                                     action =
@@ -1038,15 +1102,17 @@ fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool {
                                         egui::Frame::new()
                                             .fill(SURFACE_BG)
                                             .inner_margin(egui::Margin::same(8))
-                                            .corner_radius(6)
-                                            .stroke(egui::Stroke::new(1.0, STROKE))
+                                            .corner_radius(4)
                                             .show(ui, |ui| {
                                                 ui.set_width(KANBAN_CARD_TEXT_WIDTH);
                                                 let card = &mut board.columns[column_index].cards
                                                     [card_index];
                                                 if ui
                                                     .add_sized(
-                                                        kanban_card_text_area_size(),
+                                                        egui::vec2(
+                                                            KANBAN_CARD_TEXT_WIDTH,
+                                                            KANBAN_CARD_TEXT_HEIGHT,
+                                                        ),
                                                         egui::TextEdit::multiline(&mut card.text)
                                                             .desired_rows(3),
                                                     )
@@ -1154,8 +1220,7 @@ fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(25, 28, 32))
                     .inner_margin(egui::Margin::symmetric(10, 8))
-                    .corner_radius(6)
-                    .stroke(egui::Stroke::new(1.0, STROKE))
+                    .corner_radius(4)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             if ui.checkbox(&mut item.done, "").changed() {
@@ -1164,7 +1229,7 @@ fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
                             }
                             if ui
                                 .add_sized(
-                                    [ui.available_width() - 72.0, 28.0],
+                                    [ui.available_width() - 50.0, 28.0],
                                     egui::TextEdit::singleline(&mut item.text),
                                 )
                                 .changed()
@@ -1229,8 +1294,7 @@ fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) -> bool {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(25, 28, 32))
                     .inner_margin(egui::Margin::same(10))
-                    .corner_radius(6)
-                    .stroke(egui::Stroke::new(1.0, STROKE))
+                    .corner_radius(4)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Date").small().color(TEXT_MUTED));
@@ -1247,7 +1311,7 @@ fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) -> bool {
                             ui.label(egui::RichText::new("Title").small().color(TEXT_MUTED));
                             if ui
                                 .add_sized(
-                                    [ui.available_width() - 72.0, 28.0],
+                                    [ui.available_width() - 50.0, 28.0],
                                     egui::TextEdit::singleline(&mut event.title),
                                 )
                                 .changed()
@@ -1352,26 +1416,20 @@ fn apply_kanban_action(board: &mut KanbanBoard, action: KanbanAction) {
             if destination < 0 || destination >= column.cards.len() as isize {
                 return;
             }
-            column.cards.swap(card_index, destination as usize);
+            // Swap logic or remove/insert logic
+            let dest = destination as usize;
+            column.cards.swap(card_index, dest);
         }
     }
 }
 
 fn shorten_path(path: &str) -> String {
-    const MAX_LEN: usize = 38;
-    if path.chars().count() <= MAX_LEN {
-        return path.to_owned();
+    let components: Vec<&str> = path.split(std::path::MAIN_SEPARATOR).collect();
+    if components.len() > 3 {
+        format!(".../{}", components[components.len() - 1..].join("/"))
+    } else {
+        path.to_string()
     }
-
-    let tail: String = path
-        .chars()
-        .rev()
-        .take(MAX_LEN - 3)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-    format!("...{tail}")
 }
 
 #[cfg(test)]

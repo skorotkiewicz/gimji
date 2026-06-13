@@ -66,8 +66,10 @@ fn migration_stubs_accept_version_one_and_reject_future_versions() {
     assert!(migrate_todo(TodoList::default()).is_ok());
     assert!(migrate_calendar(CalendarData::default()).is_ok());
 
-    let mut future_board = KanbanBoard::default();
-    future_board.version = 2;
+    let future_board = KanbanBoard {
+        version: 2,
+        ..Default::default()
+    };
     assert!(migrate_kanban(future_board).is_err());
 }
 
