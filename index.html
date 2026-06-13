@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple Typed Notes Prototype</title>
+
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+    }
+
+    .sidebar {
+      width: 240px;
+      background: #222;
+      color: white;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+
+    .sidebar h2 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+
+    button {
+      cursor: pointer;
+      border: 1px solid #aaa;
+      background: white;
+      padding: 6px 10px;
+      margin: 3px;
+    }
+
+    input, textarea {
+      box-sizing: border-box;
+    }
+
+    .side-button {
+      width: 100%;
+      margin: 0 0 8px 0;
+    }
+
+    .note {
+      padding: 8px;
+      background: #333;
+      margin-bottom: 6px;
+      cursor: pointer;
+      border: 1px solid #444;
+    }
+
+    .note.active {
+      background: #555;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .note-title {
+      font-size: 22px;
+      font-weight: bold;
+      flex: 1;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      padding: 7px 10px;
+      background: #ddd;
+      border: 1px solid #aaa;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: white;
+      border-bottom: 2px solid #222;
+    }
+
+    .info {
+      font-size: 13px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    .empty {
+      color: #777;
+      padding: 30px;
+    }
+
+    .markdown-editor {
+      flex: 1;
+      width: 100%;
+      resize: none;
+      padding: 12px;
+      font-size: 15px;
+      font-family: monospace;
+      border: 1px solid #aaa;
+      background: white;
+    }
+
+    .kanban {
+      display: flex;
+      gap: 12px;
+      flex: 1;
+      overflow: auto;
+      padding-bottom: 10px;
+    }
+
+    .column {
+      width: 260px;
+      min-width: 260px;
+      background: #e5e5e5;
+      border: 1px solid #ccc;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+
+    .column h3 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+    }
+
+    .card {
+      background: white;
+      border: 1px solid #bbb;
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    .card textarea {
+      width: 100%;
+      height: 70px;
+      resize: vertical;
+      font-family: Arial, sans-serif;
+      margin-bottom: 6px;
+    }
+
+    .todo-list, .calendar-list {
+      flex: 1;
+      overflow: auto;
+      background: white;
+      border: 1px solid #ccc;
+      padding: 10px;
+    }
+
+    .todo-item, .calendar-event {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+      padding: 8px 0;
+    }
+
+    .todo-item input[type="text"] {
+      flex: 1;
+      padding: 6px;
+    }
+
+    .todo-item.done input[type="text"] {
+      text-decoration: line-through;
+      color: #777;
+    }
+
+    .calendar-event input {
+      padding: 6px;
+    }
+
+    .calendar-event input[type="text"] {
+      flex: 1;
+    }
+  </style>
+</head>
+
+<body>
+
+  <aside class="sidebar">
+    <h2>Notes</h2>
+
+    <button class="side-button" onclick="openWorkspace()">Open Workspace</button>
+    <button class="side-button" onclick="addNote()">+ Add Note</button>
+
+    <div id="notesList"></div>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="empty">Open a workspace folder first.</div>
+  </main>
+
+  <script>
+    const CONFIG_FILE = "config.json";
+    const DB_NAME = "simple_typed_notes_db";
+    const DB_STORE = "handles";
+
+    const TAB_TYPES = ["markdown", "kanban", "todo", "calendar"];
+
+    let dirHandle = null;
+    let saveTimer = null;
+
+    let config = {
+      selectedNoteId: null,
+      selectedTabId: null,
+      notes: []
+    };
+
+    function id() {
+      return Date.now().toString() + "_" + Math.random().toString(16).slice(2);
+    }
+
+    function safeName(text) {
+      return String(text)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        || "file";
+    }
+
+    function makeFileName(noteTitle, tabTitle, type, tabId) {
+      const base = safeName(noteTitle) + "-" + safeName(tabTitle) + "-" + tabId.slice(0, 8);
+
+      if (type === "kanban") return base + ".kanban.json";
+      if (type === "todo") return base + ".todo.json";
+      if (type === "calendar") return base + ".calendar.json";
+
+      return base + ".md";
+    }
+
+    function getSelectedNote() {
+      return config.notes.find(note => note.id === config.selectedNoteId);
+    }
+
+    function getSelectedTab() {
+      const note = getSelectedNote();
+      if (!note) return null;
+      return note.tabs.find(tab => tab.id === config.selectedTabId);
+    }
+
+    function findTab(tabId) {
+      for (const note of config.notes) {
+        const tab = note.tabs.find(t => t.id === tabId);
+        if (tab) return tab;
+      }
+
+      return null;
+    }
+
+    function defaultContentForType(type) {
+      if (type === "kanban") {
+        return {
+          columns: [
+            { id: "todo", title: "Todo", cards: [] },
+            { id: "doing", title: "Doing", cards: [] },
+            { id: "done", title: "Done", cards: [] }
+          ]
+        };
+      }
+
+      if (type === "todo") {
+        return {
+          items: []
+        };
+      }
+
+      if (type === "calendar") {
+        return {
+          events: []
+        };
+      }
+
+      return "";
+    }
+
+    async function openWorkspace() {
+      if (!window.showDirectoryPicker) {
+        alert("Use Chrome or Edge. This prototype needs folder access.");
+        return;
+      }
+
+      dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      await saveHandleToDb(dirHandle);
+      await loadConfigFromDisk();
+      await migrateOldConfig();
+      render();
+    }
+
+    async function loadConfigFromDisk() {
+      try {
+        const fileHandle = await dirHandle.getFileHandle(CONFIG_FILE);
+        const file = await fileHandle.getFile();
+        const text = await file.text();
+        config = JSON.parse(text);
+      } catch {
+        config = {
+          selectedNoteId: null,
+          selectedTabId: null,
+          notes: []
+        };
+
+        await saveConfigToDisk();
+      }
+    }
+
+    async function saveConfigToDisk() {
+      if (!dirHandle) return;
+
+      const fileHandle = await dirHandle.getFileHandle(CONFIG_FILE, { create: true });
+      const writable = await fileHandle.createWritable();
+
+      /*
+        config.json stores only:
+        - note ids
+        - note titles
+        - tab ids
+        - tab titles
+        - tab types
+        - tab content filenames
+
+        It does NOT store markdown text.
+        It does NOT store kanban cards.
+        It does NOT store todo items.
+        It does NOT store calendar events.
+      */
+      await writable.write(JSON.stringify(config, null, 2));
+      await writable.close();
+    }
+
+    async function migrateOldConfig() {
+      let changed = false;
+
+      for (const note of config.notes) {
+        for (const tab of note.tabs) {
+          if (!tab.type) {
+            tab.type = "markdown";
+            changed = true;
+          }
+
+          if (!tab.fileName) {
+            tab.fileName = makeFileName(note.title, tab.title, tab.type, tab.id);
+            await writeContentFile(tab, defaultContentForType(tab.type));
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        await saveConfigToDisk();
+      }
+    }
+
+    async function readTextFile(fileName) {
+      try {
+        const fileHandle = await dirHandle.getFileHandle(fileName);
+        const file = await fileHandle.getFile();
+        return await file.text();
+      } catch {
+        return "";
+      }
+    }
+
+    async function writeTextFile(fileName, text) {
+      const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    }
+
+    async function readJsonFile(fileName, fallback) {
+      try {
+        const text = await readTextFile(fileName);
+        if (!text.trim()) return fallback;
+        return JSON.parse(text);
+      } catch {
+        return fallback;
+      }
+    }
+
+    async function writeJsonFile(fileName, data) {
+      await writeTextFile(fileName, JSON.stringify(data, null, 2));
+    }
+
+    async function readContentFile(tab) {
+      if (tab.type === "kanban") {
+        return await readJsonFile(tab.fileName, defaultContentForType("kanban"));
+      }
+
+      if (tab.type === "todo") {
+        return await readJsonFile(tab.fileName, defaultContentForType("todo"));
+      }
+
+      if (tab.type === "calendar") {
+        return await readJsonFile(tab.fileName, defaultContentForType("calendar"));
+      }
+
+      return await readTextFile(tab.fileName);
+    }
+
+    async function writeContentFile(tab, content) {
+      if (tab.type === "kanban" || tab.type === "todo" || tab.type === "calendar") {
+        await writeJsonFile(tab.fileName, content);
+        return;
+      }
+
+      await writeTextFile(tab.fileName, content);
+    }
+
+    function scheduleSave(tab, content) {
+      const status = document.getElementById("status");
+      if (status) status.textContent = "Saving...";
+
+      clearTimeout(saveTimer);
+
+      const tabSnapshot = {
+        type: tab.type,
+        fileName: tab.fileName
+      };
+
+      saveTimer = setTimeout(async () => {
+        await writeContentFile(tabSnapshot, content);
+
+        const currentStatus = document.getElementById("status");
+        if (currentStatus) currentStatus.textContent = "Saved";
+      }, 300);
+    }
+
+    async function addNote() {
+      if (!dirHandle) {
+        alert("Open a workspace folder first.");
+        return;
+      }
+
+      const title = prompt("Note name:", "New Note");
+      if (!title) return;
+
+      const noteId = id();
+      const tabId = id();
+
+      const firstTab = {
+        id: tabId,
+        title: "Markdown",
+        type: "markdown",
+        fileName: makeFileName(title, "Markdown", "markdown", tabId)
+      };
+
+      const note = {
+        id: noteId,
+        title: title,
+        tabs: [firstTab]
+      };
+
+      config.notes.push(note);
+      config.selectedNoteId = noteId;
+      config.selectedTabId = tabId;
+
+      await writeContentFile(firstTab, "");
+      await saveConfigToDisk();
+
+      render();
+    }
+
+    async function addTab() {
+      const note = getSelectedNote();
+      if (!note) return;
+
+      let type = prompt("Tab type: markdown, kanban, todo, calendar", "markdown");
+      if (!type) return;
+
+      type = type.trim().toLowerCase();
+
+      if (!TAB_TYPES.includes(type)) {
+        alert("Supported types: markdown, kanban, todo, calendar");
+        return;
+      }
+
+      const title = prompt("Tab name:", type);
+      if (!title) return;
+
+      const tabId = id();
+
+      const tab = {
+        id: tabId,
+        title: title,
+        type: type,
+        fileName: makeFileName(note.title, title, type, tabId)
+      };
+
+      note.tabs.push(tab);
+      config.selectedTabId = tab.id;
+
+      await writeContentFile(tab, defaultContentForType(type));
+      await saveConfigToDisk();
+
+      render();
+    }
+
+    async function renameNote() {
+      const note = getSelectedNote();
+      if (!note) return;
+
+      const title = prompt("New note name:", note.title);
+      if (!title) return;
+
+      note.title = title;
+      await saveConfigToDisk();
+      render();
+    }
+
+    async function renameTab() {
+      const tab = getSelectedTab();
+      if (!tab) return;
+
+      const title = prompt("New tab name:", tab.title);
+      if (!title) return;
+
+      tab.title = title;
+      await saveConfigToDisk();
+      render();
+    }
+
+    async function deleteNote() {
+      const note = getSelectedNote();
+      if (!note) return;
+
+      if (!confirm("Delete note config? Content files stay on disk.")) return;
+
+      config.notes = config.notes.filter(n => n.id !== note.id);
+
+      if (config.notes.length) {
+        config.selectedNoteId = config.notes[0].id;
+        config.selectedTabId = config.notes[0].tabs[0].id;
+      } else {
+        config.selectedNoteId = null;
+        config.selectedTabId = null;
+      }
+
+      await saveConfigToDisk();
+      render();
+    }
+
+    async function deleteTab() {
+      const note = getSelectedNote();
+      const tab = getSelectedTab();
+
+      if (!note || !tab) return;
+
+      if (note.tabs.length === 1) {
+        alert("A note must have at least one tab.");
+        return;
+      }
+
+      if (!confirm("Delete tab config? Content file stays on disk.")) return;
+
+      note.tabs = note.tabs.filter(t => t.id !== tab.id);
+      config.selectedTabId = note.tabs[0].id;
+
+      await saveConfigToDisk();
+      render();
+    }
+
+    async function selectNote(noteId) {
+      const note = config.notes.find(n => n.id === noteId);
+      if (!note) return;
+
+      config.selectedNoteId = note.id;
+      config.selectedTabId = note.tabs[0].id;
+
+      await saveConfigToDisk();
+      render();
+    }
+
+    async function selectTab(tabId) {
+      config.selectedTabId = tabId;
+      await saveConfigToDisk();
+      render();
+    }
+
+    function autoSaveMarkdown(tabId) {
+      const tab = findTab(tabId);
+      const editor = document.getElementById("markdownEditor");
+
+      if (!tab || !editor) return;
+
+      scheduleSave(tab, editor.value);
+    }
+
+    async function addKanbanCard(columnId) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "kanban") return;
+
+      const text = prompt("Card text:", "New card");
+      if (!text) return;
+
+      const board = await readContentFile(tab);
+      const column = board.columns.find(c => c.id === columnId);
+      if (!column) return;
+
+      column.cards.push({
+        id: id(),
+        text: text
+      });
+
+      await writeContentFile(tab, board);
+      render();
+    }
+
+    async function updateKanbanCard(columnId, cardId, text) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "kanban") return;
+
+      const board = await readContentFile(tab);
+      const column = board.columns.find(c => c.id === columnId);
+      if (!column) return;
+
+      const card = column.cards.find(c => c.id === cardId);
+      if (!card) return;
+
+      card.text = text;
+      scheduleSave(tab, board);
+    }
+
+    async function deleteKanbanCard(columnId, cardId) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "kanban") return;
+
+      const board = await readContentFile(tab);
+      const column = board.columns.find(c => c.id === columnId);
+      if (!column) return;
+
+      column.cards = column.cards.filter(c => c.id !== cardId);
+
+      await writeContentFile(tab, board);
+      render();
+    }
+
+    async function moveKanbanCard(columnId, cardId, direction) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "kanban") return;
+
+      const board = await readContentFile(tab);
+      const fromIndex = board.columns.findIndex(c => c.id === columnId);
+      if (fromIndex === -1) return;
+
+      const toIndex = fromIndex + direction;
+      if (toIndex < 0 || toIndex >= board.columns.length) return;
+
+      const fromColumn = board.columns[fromIndex];
+      const toColumn = board.columns[toIndex];
+
+      const cardIndex = fromColumn.cards.findIndex(c => c.id === cardId);
+      if (cardIndex === -1) return;
+
+      const card = fromColumn.cards.splice(cardIndex, 1)[0];
+      toColumn.cards.push(card);
+
+      await writeContentFile(tab, board);
+      render();
+    }
+
+    async function addTodoItem() {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "todo") return;
+
+      const text = prompt("Todo:", "New todo");
+      if (!text) return;
+
+      const list = await readContentFile(tab);
+
+      list.items.push({
+        id: id(),
+        text: text,
+        done: false
+      });
+
+      await writeContentFile(tab, list);
+      render();
+    }
+
+    async function updateTodoText(itemId, text) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "todo") return;
+
+      const list = await readContentFile(tab);
+      const item = list.items.find(i => i.id === itemId);
+      if (!item) return;
+
+      item.text = text;
+      scheduleSave(tab, list);
+    }
+
+    async function toggleTodo(itemId, checked) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "todo") return;
+
+      const list = await readContentFile(tab);
+      const item = list.items.find(i => i.id === itemId);
+      if (!item) return;
+
+      item.done = checked;
+
+      await writeContentFile(tab, list);
+      render();
+    }
+
+    async function deleteTodoItem(itemId) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "todo") return;
+
+      const list = await readContentFile(tab);
+      list.items = list.items.filter(i => i.id !== itemId);
+
+      await writeContentFile(tab, list);
+      render();
+    }
+
+    async function addCalendarEvent() {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "calendar") return;
+
+      const title = prompt("Event title:", "New event");
+      if (!title) return;
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const calendar = await readContentFile(tab);
+
+      calendar.events.push({
+        id: id(),
+        date: today,
+        title: title
+      });
+
+      await writeContentFile(tab, calendar);
+      render();
+    }
+
+    async function updateCalendarEvent(eventId, field, value) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "calendar") return;
+
+      const calendar = await readContentFile(tab);
+      const event = calendar.events.find(e => e.id === eventId);
+      if (!event) return;
+
+      event[field] = value;
+      scheduleSave(tab, calendar);
+    }
+
+    async function deleteCalendarEvent(eventId) {
+      const tab = getSelectedTab();
+      if (!tab || tab.type !== "calendar") return;
+
+      const calendar = await readContentFile(tab);
+      calendar.events = calendar.events.filter(e => e.id !== eventId);
+
+      await writeContentFile(tab, calendar);
+      render();
+    }
+
+    function renderSidebar() {
+      const notesList = document.getElementById("notesList");
+      notesList.innerHTML = "";
+
+      config.notes.forEach(note => {
+        const div = document.createElement("div");
+        div.className = "note";
+
+        if (note.id === config.selectedNoteId) {
+          div.classList.add("active");
+        }
+
+        div.textContent = note.title;
+        div.onclick = () => selectNote(note.id);
+
+        notesList.appendChild(div);
+      });
+    }
+
+    async function renderMain() {
+      const main = document.getElementById("main");
+
+      if (!dirHandle) {
+        main.innerHTML = '<div class="empty">Open a workspace folder first.</div>';
+        return;
+      }
+
+      const note = getSelectedNote();
+
+      if (!note) {
+        main.innerHTML = '<div class="empty">Create a note from the sidebar.</div>';
+        return;
+      }
+
+      const tab = getSelectedTab();
+
+      main.innerHTML = `
+        <div class="top">
+          <div class="note-title">${escapeHtml(note.title)}</div>
+          <button onclick="renameNote()">Rename Note</button>
+          <button onclick="deleteNote()">Delete Note</button>
+        </div>
+
+        <div class="tabs" id="tabs"></div>
+
+        <div>
+          <button onclick="addTab()">+ Add Tab</button>
+          <button onclick="renameTab()">Rename Tab</button>
+          <button onclick="deleteTab()">Delete Tab</button>
+        </div>
+
+        <div class="info">
+          Type: ${tab ? escapeHtml(tab.type) : "none"} |
+          File: ${tab ? escapeHtml(tab.fileName) : "none"} |
+          <span id="status"></span>
+        </div>
+
+        <div id="tabContent" style="flex: 1; display: flex; overflow: hidden;"></div>
+      `;
+
+      renderTabs();
+
+      if (!tab) return;
+
+      if (tab.type === "kanban") {
+        await renderKanban(tab);
+      } else if (tab.type === "todo") {
+        await renderTodo(tab);
+      } else if (tab.type === "calendar") {
+        await renderCalendar(tab);
+      } else {
+        await renderMarkdown(tab);
+      }
+    }
+
+    function renderTabs() {
+      const note = getSelectedNote();
+      const tabsDiv = document.getElementById("tabs");
+
+      if (!note || !tabsDiv) return;
+
+      tabsDiv.innerHTML = "";
+
+      note.tabs.forEach(t => {
+        const div = document.createElement("div");
+        div.className = "tab";
+
+        if (t.id === config.selectedTabId) {
+          div.classList.add("active");
+        }
+
+        div.textContent = t.title + " (" + t.type + ")";
+        div.onclick = () => selectTab(t.id);
+
+        tabsDiv.appendChild(div);
+      });
+    }
+
+    async function renderMarkdown(tab) {
+      const container = document.getElementById("tabContent");
+      const content = await readContentFile(tab);
+
+      container.innerHTML = `
+        <textarea
+          id="markdownEditor"
+          class="markdown-editor"
+          placeholder="Write markdown here..."
+          oninput="autoSaveMarkdown('${tab.id}')"
+        ></textarea>
+      `;
+
+      document.getElementById("markdownEditor").value = content;
+    }
+
+    async function renderKanban(tab) {
+      const container = document.getElementById("tabContent");
+      const board = await readContentFile(tab);
+
+      container.innerHTML = '<div class="kanban" id="kanban"></div>';
+
+      const kanban = document.getElementById("kanban");
+
+      board.columns.forEach(column => {
+        const columnDiv = document.createElement("div");
+        columnDiv.className = "column";
+
+        columnDiv.innerHTML = `
+          <h3>${escapeHtml(column.title)}</h3>
+          <button onclick="addKanbanCard('${column.id}')">+ Card</button>
+          <div class="cards"></div>
+        `;
+
+        const cardsDiv = columnDiv.querySelector(".cards");
+
+        column.cards.forEach(card => {
+          const cardDiv = document.createElement("div");
+          cardDiv.className = "card";
+
+          cardDiv.innerHTML = `
+            <textarea oninput="updateKanbanCard('${column.id}', '${card.id}', this.value)">${escapeHtml(card.text)}</textarea>
+
+            <div>
+              <button onclick="moveKanbanCard('${column.id}', '${card.id}', -1)">←</button>
+              <button onclick="moveKanbanCard('${column.id}', '${card.id}', 1)">→</button>
+              <button onclick="deleteKanbanCard('${column.id}', '${card.id}')">Delete</button>
+            </div>
+          `;
+
+          cardsDiv.appendChild(cardDiv);
+        });
+
+        kanban.appendChild(columnDiv);
+      });
+    }
+
+    async function renderTodo(tab) {
+      const container = document.getElementById("tabContent");
+      const list = await readContentFile(tab);
+
+      container.innerHTML = `
+        <div class="todo-list">
+          <button onclick="addTodoItem()">+ Todo</button>
+          <div id="todoItems"></div>
+        </div>
+      `;
+
+      const todoItems = document.getElementById("todoItems");
+
+      list.items.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "todo-item";
+
+        if (item.done) {
+          row.classList.add("done");
+        }
+
+        row.innerHTML = `
+          <input
+            type="checkbox"
+            ${item.done ? "checked" : ""}
+            onchange="toggleTodo('${item.id}', this.checked)"
+          >
+
+          <input
+            type="text"
+            value="${escapeAttr(item.text)}"
+            oninput="updateTodoText('${item.id}', this.value)"
+          >
+
+          <button onclick="deleteTodoItem('${item.id}')">Delete</button>
+        `;
+
+        todoItems.appendChild(row);
+      });
+    }
+
+    async function renderCalendar(tab) {
+      const container = document.getElementById("tabContent");
+      const calendar = await readContentFile(tab);
+
+      calendar.events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+      container.innerHTML = `
+        <div class="calendar-list">
+          <button onclick="addCalendarEvent()">+ Event</button>
+          <div id="calendarEvents"></div>
+        </div>
+      `;
+
+      const calendarEvents = document.getElementById("calendarEvents");
+
+      calendar.events.forEach(event => {
+        const row = document.createElement("div");
+        row.className = "calendar-event";
+
+        row.innerHTML = `
+          <input
+            type="date"
+            value="${escapeAttr(event.date)}"
+            onchange="updateCalendarEvent('${event.id}', 'date', this.value)"
+          >
+
+          <input
+            type="text"
+            value="${escapeAttr(event.title)}"
+            oninput="updateCalendarEvent('${event.id}', 'title', this.value)"
+          >
+
+          <button onclick="deleteCalendarEvent('${event.id}')">Delete</button>
+        `;
+
+        calendarEvents.appendChild(row);
+      });
+    }
+
+    function render() {
+      renderSidebar();
+      renderMain();
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function escapeAttr(text) {
+      return escapeHtml(text).replaceAll("'", "&#039;");
+    }
+
+    function openDb() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore(DB_STORE);
+        };
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function saveHandleToDb(handle) {
+      const db = await openDb();
+
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, "readwrite");
+        tx.objectStore(DB_STORE).put(handle, "workspace");
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function getHandleFromDb() {
+      const db = await openDb();
+
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, "readonly");
+        const request = tx.objectStore(DB_STORE).get("workspace");
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function restoreWorkspaceAfterRefresh() {
+      try {
+        const handle = await getHandleFromDb();
+        if (!handle) return;
+
+        const permission = await handle.queryPermission({ mode: "readwrite" });
+
+        if (permission !== "granted") {
+          return;
+        }
+
+        dirHandle = handle;
+        await loadConfigFromDisk();
+        await migrateOldConfig();
+        render();
+      } catch {
+        // Ignore restore errors.
+      }
+    }
+
+    restoreWorkspaceAfterRefresh();
+    render();
+  </script>
+
+</body>
+</html>
