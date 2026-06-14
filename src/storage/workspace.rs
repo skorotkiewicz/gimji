@@ -20,6 +20,19 @@ pub struct Workspace {
     config: AppConfig,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeleteOptions {
+    remove_local_files: bool,
+}
+
+impl DeleteOptions {
+    pub const fn remove_local_files() -> Self {
+        Self {
+            remove_local_files: true,
+        }
+    }
+}
+
 impl Workspace {
     pub fn create(path: impl AsRef<Path>) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
@@ -163,6 +176,33 @@ impl Workspace {
         self.save_config()
     }
 
+    pub fn delete_note(&mut self, note_id: &str, options: DeleteOptions) -> Result<()> {
+        let content_paths = if options.remove_local_files {
+            let note = self
+                .config
+                .notes
+                .iter()
+                .find(|note| note.id == note_id)
+                .ok_or_else(|| AppError::NoteNotFound(note_id.to_owned()))?;
+            Some(
+                note.tabs
+                    .iter()
+                    .map(|tab| self.content_path(tab))
+                    .collect::<Result<Vec<_>>>()?,
+            )
+        } else {
+            None
+        };
+
+        self.delete_note_config(note_id)?;
+
+        if let Some(paths) = content_paths {
+            self.remove_local_files(&paths)?;
+        }
+
+        Ok(())
+    }
+
     pub fn delete_note_config(&mut self, note_id: &str) -> Result<()> {
         let before = self.config.notes.len();
         self.config.notes.retain(|note| note.id != note_id);
@@ -178,6 +218,23 @@ impl Workspace {
         }
 
         self.save_config()
+    }
+
+    pub fn delete_tab(&mut self, tab_id: &str, options: DeleteOptions) -> Result<()> {
+        let content_paths = if options.remove_local_files {
+            let tab = self.find_tab(tab_id)?;
+            Some(vec![self.content_path(tab)?])
+        } else {
+            None
+        };
+
+        self.delete_tab_config(tab_id)?;
+
+        if let Some(paths) = content_paths {
+            self.remove_local_files(&paths)?;
+        }
+
+        Ok(())
     }
 
     pub fn delete_tab_config(&mut self, tab_id: &str) -> Result<()> {
@@ -282,6 +339,18 @@ impl Workspace {
     fn content_path(&self, tab: &Tab) -> Result<PathBuf> {
         validate_relative_content_path(&tab.file_name)?;
         Ok(self.root.join(&tab.file_name))
+    }
+
+    fn remove_local_files(&self, paths: &[PathBuf]) -> Result<()> {
+        for path in paths {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => return Err(AppError::io(path, source)),
+            }
+        }
+
+        Ok(())
     }
 
     fn find_note_mut(&mut self, note_id: &str) -> Result<&mut Note> {

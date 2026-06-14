@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::models::{
     CalendarData, CalendarEvent, KanbanBoard, KanbanCard, TabContent, TabType, TodoItem, TodoList,
 };
-use crate::storage::Workspace;
+use crate::storage::{DeleteOptions, Workspace};
 
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(700);
 const APP_BG: egui::Color32 = egui::Color32::from_rgb(18, 19, 21);
@@ -57,6 +57,7 @@ struct GimjiApp {
     rename_tab_id: Option<String>,
     save_status: SaveStatus,
     pending_confirm: Option<ConfirmAction>,
+    remove_local_files_on_delete: bool,
     message: Option<String>,
     // UI State
     editing_note_title: bool,
@@ -80,6 +81,7 @@ impl GimjiApp {
             rename_tab_id: None,
             save_status: SaveStatus::Idle,
             pending_confirm: None,
+            remove_local_files_on_delete: false,
             message: None,
             editing_note_title: false,
         }
@@ -386,16 +388,26 @@ impl GimjiApp {
         self.save_status = SaveStatus::Error(message);
     }
 
+    fn request_delete(&mut self, action: ConfirmAction) {
+        self.pending_confirm = Some(action);
+        self.remove_local_files_on_delete = false;
+    }
+
     fn confirm_delete(&mut self) {
         let Some(action) = self.pending_confirm.take() else {
             return;
+        };
+        let options = if self.remove_local_files_on_delete {
+            DeleteOptions::remove_local_files()
+        } else {
+            DeleteOptions::default()
         };
 
         self.flush_current();
         match action {
             ConfirmAction::DeleteNote(note_id) => {
                 if let Some(workspace) = &mut self.workspace {
-                    match workspace.delete_note_config(&note_id) {
+                    match workspace.delete_note(&note_id, options) {
                         Ok(()) => {
                             self.renaming_tab = false;
                             self.rename_tab_id = None;
@@ -408,7 +420,7 @@ impl GimjiApp {
             }
             ConfirmAction::DeleteTab(tab_id) => {
                 if let Some(workspace) = &mut self.workspace {
-                    match workspace.delete_tab_config(&tab_id) {
+                    match workspace.delete_tab(&tab_id, options) {
                         Ok(()) => {
                             self.renaming_tab = false;
                             self.rename_tab_id = None;
@@ -662,7 +674,7 @@ impl GimjiApp {
                         .on_hover_text("Remove note metadata only")
                         .clicked()
                     {
-                        self.pending_confirm = Some(ConfirmAction::DeleteNote(note.id.clone()));
+                        self.request_delete(ConfirmAction::DeleteNote(note.id.clone()));
                     }
                     if ui.button("Rename").clicked() {
                         self.editing_note_title = true;
@@ -773,8 +785,9 @@ impl GimjiApp {
                                         }
                                         ui.separator();
                                         if ui.button("Delete").clicked() {
-                                            self.pending_confirm =
-                                                Some(ConfirmAction::DeleteTab(tab.id.clone()));
+                                            self.request_delete(ConfirmAction::DeleteTab(
+                                                tab.id.clone(),
+                                            ));
                                             ui.close();
                                         }
                                     });
@@ -869,11 +882,16 @@ impl GimjiApp {
                     ui.spacing_mut().item_spacing.x = 12.0;
                     if ui.button("Cancel").clicked() {
                         self.pending_confirm = None;
+                        self.remove_local_files_on_delete = false;
                     }
                     if ui.button("Delete").clicked() {
                         self.confirm_delete();
                     }
                 });
+                ui.checkbox(
+                    &mut self.remove_local_files_on_delete,
+                    "Remove local content files",
+                );
             });
     }
 
@@ -1513,6 +1531,7 @@ mod tests {
             rename_tab_id: None,
             save_status: SaveStatus::Idle,
             pending_confirm: None,
+            remove_local_files_on_delete: false,
             message: None,
             editing_note_title: false,
         }
