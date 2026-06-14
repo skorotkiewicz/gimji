@@ -730,12 +730,29 @@ impl GimjiApp {
                                         }
                                     });
                                 } else {
-                                    let label = format!("{} {}", tab.title, tab.tab_type.as_str());
+                                    let type_text = tab.tab_type.as_str();
+                                    let mut job = egui::text::LayoutJob::default();
+                                    job.append(
+                                        &tab.title,
+                                        0.0,
+                                        egui::TextFormat::simple(
+                                            egui::FontId::proportional(14.0),
+                                            egui::Color32::WHITE,
+                                        ),
+                                    );
+                                    job.append(
+                                        format!(" ({type_text})").as_str(),
+                                        0.0,
+                                        egui::TextFormat::simple(
+                                            egui::FontId::proportional(12.0),
+                                            TEXT_MUTED,
+                                        ),
+                                    );
                                     let mut response = ui.add(
-                                        egui::Button::new(egui::RichText::new(label).size(14.0))
+                                        egui::Button::new(job)
                                             .selected(selected)
                                             .fill(fill)
-                                            .frame(false)
+                                            // .frame(false)
                                             .sense(egui::Sense::click()),
                                     );
                                     response = response.on_hover_text(format!(
