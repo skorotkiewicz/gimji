@@ -27,6 +27,10 @@ pub enum AppError {
         expected: &'static str,
         actual: &'static str,
     },
+    #[error("invalid S3 connection settings: {0}")]
+    InvalidS3Connection(String),
+    #[error("S3 connection failed: {0}")]
+    S3ConnectionFailed(String),
 }
 
 impl AppError {

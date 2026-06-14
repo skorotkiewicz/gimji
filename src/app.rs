@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::models::{
     CalendarData, CalendarEvent, KanbanBoard, KanbanCard, TabContent, TabType, TodoItem, TodoList,
 };
-use crate::storage::{DeleteOptions, Workspace};
+use crate::storage::{DeleteOptions, S3ConnectionSettings, Workspace};
 
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(700);
 const APP_BG: egui::Color32 = egui::Color32::from_rgb(18, 19, 21);
@@ -58,6 +58,12 @@ struct GimjiApp {
     save_status: SaveStatus,
     pending_confirm: Option<ConfirmAction>,
     remove_local_files_on_delete: bool,
+    s3_endpoint_url: String,
+    s3_region: String,
+    s3_bucket: String,
+    s3_access_key_id: String,
+    s3_secret_access_key: String,
+    s3_connection_status: S3ConnectionStatus,
     message: Option<String>,
     // UI State
     editing_note_title: bool,
@@ -82,6 +88,12 @@ impl GimjiApp {
             save_status: SaveStatus::Idle,
             pending_confirm: None,
             remove_local_files_on_delete: false,
+            s3_endpoint_url: String::new(),
+            s3_region: "us-east-1".to_owned(),
+            s3_bucket: String::new(),
+            s3_access_key_id: String::new(),
+            s3_secret_access_key: String::new(),
+            s3_connection_status: S3ConnectionStatus::Idle,
             message: None,
             editing_note_title: false,
         }
@@ -388,6 +400,40 @@ impl GimjiApp {
         self.save_status = SaveStatus::Error(message);
     }
 
+    fn s3_connection_settings(&self) -> S3ConnectionSettings {
+        S3ConnectionSettings {
+            endpoint_url: self.s3_endpoint_url.trim().to_owned(),
+            region: self.s3_region.trim().to_owned(),
+            bucket: self.s3_bucket.trim().to_owned(),
+            access_key_id: self.s3_access_key_id.trim().to_owned(),
+            secret_access_key: self.s3_secret_access_key.trim().to_owned(),
+        }
+    }
+
+    fn test_s3_connection(&mut self) {
+        let settings = self.s3_connection_settings();
+        self.s3_connection_status = S3ConnectionStatus::Testing;
+
+        let result = tokio::runtime::Runtime::new()
+            .map_err(|error| error.to_string())
+            .and_then(|runtime| {
+                runtime
+                    .block_on(settings.test_connection())
+                    .map_err(|error| error.to_string())
+            });
+
+        match result {
+            Ok(()) => {
+                self.s3_connection_status = S3ConnectionStatus::Connected;
+                self.message = Some("S3 connection successful.".to_owned());
+            }
+            Err(error) => {
+                self.s3_connection_status = S3ConnectionStatus::Error(error.clone());
+                self.message = Some(error);
+            }
+        }
+    }
+
     fn request_delete(&mut self, action: ConfirmAction) {
         self.pending_confirm = Some(action);
         self.remove_local_files_on_delete = false;
@@ -488,6 +534,11 @@ impl GimjiApp {
                             self.new_workspace_dialog();
                         }
                     });
+
+                    ui.add_space(12.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    self.render_s3_section(ui);
 
                     // Recent
                     if !self.recent.paths.is_empty() {
@@ -590,6 +641,54 @@ impl GimjiApp {
                         });
                 });
             });
+    }
+
+    fn render_s3_section(&mut self, ui: &mut egui::Ui) {
+        section_label(ui, "S3");
+        ui.add(
+            egui::TextEdit::singleline(&mut self.s3_endpoint_url)
+                .hint_text("Endpoint URL")
+                .desired_width(f32::INFINITY)
+                .margin(egui::Vec2::new(4.0, 4.0)),
+        );
+        ui.add(
+            egui::TextEdit::singleline(&mut self.s3_region)
+                .hint_text("Region")
+                .desired_width(f32::INFINITY)
+                .margin(egui::Vec2::new(4.0, 4.0)),
+        );
+        ui.add(
+            egui::TextEdit::singleline(&mut self.s3_bucket)
+                .hint_text("Bucket")
+                .desired_width(f32::INFINITY)
+                .margin(egui::Vec2::new(4.0, 4.0)),
+        );
+        ui.add(
+            egui::TextEdit::singleline(&mut self.s3_access_key_id)
+                .hint_text("Access key")
+                .desired_width(f32::INFINITY)
+                .margin(egui::Vec2::new(4.0, 4.0)),
+        );
+        ui.add(
+            egui::TextEdit::singleline(&mut self.s3_secret_access_key)
+                .password(true)
+                .hint_text("Secret key")
+                .desired_width(f32::INFINITY)
+                .margin(egui::Vec2::new(4.0, 4.0)),
+        );
+        ui.horizontal(|ui| {
+            if ui
+                .add_sized([64.0, 26.0], egui::Button::new("Test").small())
+                .clicked()
+            {
+                self.test_s3_connection();
+            }
+            ui.label(
+                egui::RichText::new(self.s3_connection_status.label())
+                    .small()
+                    .color(s3_connection_status_color(&self.s3_connection_status)),
+            );
+        });
     }
 
     fn render_main(&mut self, root_ui: &mut egui::Ui) {
@@ -943,6 +1042,25 @@ impl SaveStatus {
 }
 
 #[derive(Debug, Clone)]
+enum S3ConnectionStatus {
+    Idle,
+    Testing,
+    Connected,
+    Error(String),
+}
+
+impl S3ConnectionStatus {
+    fn label(&self) -> String {
+        match self {
+            Self::Idle => "Not connected".to_owned(),
+            Self::Testing => "Testing...".to_owned(),
+            Self::Connected => "Connected".to_owned(),
+            Self::Error(message) => format!("Error: {message}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 enum ConfirmAction {
     DeleteNote(String),
     DeleteTab(String),
@@ -1055,6 +1173,15 @@ fn status_color(status: &SaveStatus) -> egui::Color32 {
         SaveStatus::Saving => egui::Color32::from_rgb(102, 171, 238),
         SaveStatus::Saved => ACCENT,
         SaveStatus::Error(_) => egui::Color32::from_rgb(232, 116, 116),
+    }
+}
+
+fn s3_connection_status_color(status: &S3ConnectionStatus) -> egui::Color32 {
+    match status {
+        S3ConnectionStatus::Idle => TEXT_MUTED,
+        S3ConnectionStatus::Testing => egui::Color32::from_rgb(102, 171, 238),
+        S3ConnectionStatus::Connected => ACCENT,
+        S3ConnectionStatus::Error(_) => egui::Color32::from_rgb(232, 116, 116),
     }
 }
 
@@ -1511,8 +1638,8 @@ mod tests {
 
     use super::{
         GimjiApp, KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
-        NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, SaveStatus, kanban_card_text_area_size,
-        kanban_column_area_size, kanban_column_header_action_area_size,
+        NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, S3ConnectionStatus, SaveStatus,
+        kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
         note_header_action_area_size, note_matches_filter, tab_action_section_titles,
     };
 
@@ -1532,6 +1659,12 @@ mod tests {
             save_status: SaveStatus::Idle,
             pending_confirm: None,
             remove_local_files_on_delete: false,
+            s3_endpoint_url: String::new(),
+            s3_region: "us-east-1".to_owned(),
+            s3_bucket: String::new(),
+            s3_access_key_id: String::new(),
+            s3_secret_access_key: String::new(),
+            s3_connection_status: S3ConnectionStatus::Idle,
             message: None,
             editing_note_title: false,
         }
@@ -1543,6 +1676,42 @@ mod tests {
         assert!(note_matches_filter("Project Notes", "NOTES"));
         assert!(note_matches_filter("Project Notes", ""));
         assert!(!note_matches_filter("Project Notes", "archive"));
+    }
+
+    #[test]
+    fn app_builds_s3_connection_settings_from_form_fields() {
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let mut app = app_with_workspace(workspace);
+
+        app.s3_endpoint_url = " http://192.168.0.125:9000 ".to_owned();
+        app.s3_region = " us-east-1 ".to_owned();
+        app.s3_bucket = " gimji ".to_owned();
+        app.s3_access_key_id = " minioadmin ".to_owned();
+        app.s3_secret_access_key = " minioadmin ".to_owned();
+
+        let settings = app.s3_connection_settings();
+
+        assert_eq!(settings.endpoint_url, "http://192.168.0.125:9000");
+        assert_eq!(settings.region, "us-east-1");
+        assert_eq!(settings.bucket, "gimji");
+        assert_eq!(settings.access_key_id, "minioadmin");
+        assert_eq!(settings.secret_access_key, "minioadmin");
+    }
+
+    #[test]
+    fn s3_connection_validation_failure_does_not_change_save_status() {
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let mut app = app_with_workspace(workspace);
+
+        app.test_s3_connection();
+
+        assert!(matches!(app.save_status, SaveStatus::Idle));
+        assert!(matches!(
+            app.s3_connection_status,
+            S3ConnectionStatus::Error(_)
+        ));
     }
 
     #[test]
