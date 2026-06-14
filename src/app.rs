@@ -465,12 +465,59 @@ impl GimjiApp {
         }
     }
 
+    fn restore_workspace_from_s3(&mut self) {
+        self.flush_current();
+
+        let Some(root) = self
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root().to_path_buf())
+        else {
+            self.message = Some("Open a workspace before restoring from S3.".to_owned());
+            return;
+        };
+
+        let settings = self.s3_connection_settings();
+        self.s3_connection_status = S3ConnectionStatus::Testing;
+
+        let result = tokio::runtime::Runtime::new()
+            .map_err(|error| error.to_string())
+            .and_then(|runtime| {
+                let workspace = self
+                    .workspace
+                    .as_ref()
+                    .ok_or_else(|| "Open a workspace before restoring from S3.".to_owned())?;
+                runtime
+                    .block_on(settings.restore_workspace(workspace))
+                    .map_err(|error| error.to_string())
+            });
+
+        match result.and_then(|()| Workspace::open(&root).map_err(|error| error.to_string())) {
+            Ok(workspace) => {
+                self.workspace = Some(workspace);
+                self.loaded = None;
+                self.load_selected_content();
+                self.s3_connection_status = S3ConnectionStatus::Connected;
+                self.message = Some("S3 restore successful.".to_owned());
+            }
+            Err(error) => {
+                self.s3_connection_status = S3ConnectionStatus::Error(error.clone());
+                self.message = Some(error);
+            }
+        }
+    }
+
+    fn request_s3_restore(&mut self) {
+        self.pending_confirm = Some(ConfirmAction::RestoreWorkspaceFromS3);
+        self.remove_local_files_on_delete = false;
+    }
+
     fn request_delete(&mut self, action: ConfirmAction) {
         self.pending_confirm = Some(action);
         self.remove_local_files_on_delete = false;
     }
 
-    fn confirm_delete(&mut self) {
+    fn confirm_action(&mut self) {
         let Some(action) = self.pending_confirm.take() else {
             return;
         };
@@ -507,6 +554,9 @@ impl GimjiApp {
                         Err(error) => self.set_error(error.to_string()),
                     }
                 }
+            }
+            ConfirmAction::RestoreWorkspaceFromS3 => {
+                self.restore_workspace_from_s3();
             }
         }
     }
@@ -709,16 +759,24 @@ impl GimjiApp {
         );
         ui.horizontal(|ui| {
             if ui
-                .add_sized([64.0, 26.0], egui::Button::new("Test").small())
-                .clicked()
-            {
-                self.test_s3_connection();
-            }
-            if ui
                 .add_sized([74.0, 26.0], egui::Button::new("Backup").small())
                 .clicked()
             {
                 self.backup_workspace_to_s3();
+            }
+            if ui
+                .add_sized([76.0, 26.0], egui::Button::new("Restore").small())
+                .clicked()
+            {
+                self.request_s3_restore();
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .add_sized([64.0, 26.0], egui::Button::new("Test").small())
+                .clicked()
+            {
+                self.test_s3_connection();
             }
         });
         ui.label(
@@ -1006,7 +1064,18 @@ impl GimjiApp {
             ConfirmAction::DeleteTab(_) => {
                 "Delete this tab from config? Content file stays on disk."
             }
+            ConfirmAction::RestoreWorkspaceFromS3 => {
+                "Restore this workspace from S3? Local config and content files will be overwritten."
+            }
         };
+        let confirm_label = match action {
+            ConfirmAction::RestoreWorkspaceFromS3 => "Restore",
+            _ => "Delete",
+        };
+        let show_remove_local_files = matches!(
+            action,
+            ConfirmAction::DeleteNote(_) | ConfirmAction::DeleteTab(_)
+        );
 
         egui::Window::new("Confirm")
             .collapsible(false)
@@ -1020,14 +1089,16 @@ impl GimjiApp {
                         self.pending_confirm = None;
                         self.remove_local_files_on_delete = false;
                     }
-                    if ui.button("Delete").clicked() {
-                        self.confirm_delete();
+                    if ui.button(confirm_label).clicked() {
+                        self.confirm_action();
                     }
                 });
-                ui.checkbox(
-                    &mut self.remove_local_files_on_delete,
-                    "Remove local content files",
-                );
+                if show_remove_local_files {
+                    ui.checkbox(
+                        &mut self.remove_local_files_on_delete,
+                        "Remove local content files",
+                    );
+                }
             });
     }
 
@@ -1101,6 +1172,7 @@ impl S3ConnectionStatus {
 enum ConfirmAction {
     DeleteNote(String),
     DeleteTab(String),
+    RestoreWorkspaceFromS3,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -1674,10 +1746,11 @@ mod tests {
     use crate::storage::Workspace;
 
     use super::{
-        GimjiApp, KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
-        NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, S3ConnectionStatus, SaveStatus,
-        kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
-        note_header_action_area_size, note_matches_filter, tab_action_section_titles,
+        ConfirmAction, GimjiApp, KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH,
+        KANBAN_COLUMN_WIDTH, NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, S3ConnectionStatus,
+        SaveStatus, kanban_card_text_area_size, kanban_column_area_size,
+        kanban_column_header_action_area_size, note_header_action_area_size, note_matches_filter,
+        tab_action_section_titles,
     };
 
     fn app_with_workspace(workspace: Workspace) -> GimjiApp {
@@ -1763,6 +1836,20 @@ mod tests {
         assert!(matches!(
             app.s3_connection_status,
             S3ConnectionStatus::Error(_)
+        ));
+    }
+
+    #[test]
+    fn s3_restore_button_requests_confirmation_before_overwriting_workspace() {
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let mut app = app_with_workspace(workspace);
+
+        app.request_s3_restore();
+
+        assert!(matches!(
+            app.pending_confirm,
+            Some(ConfirmAction::RestoreWorkspaceFromS3)
         ));
     }
 

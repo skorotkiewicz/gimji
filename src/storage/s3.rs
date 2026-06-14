@@ -9,6 +9,8 @@ use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_sdk_s3::primitives::ByteStream;
 
 use crate::storage::Workspace;
+use crate::storage::atomic::atomic_write;
+use crate::storage::validate_relative_content_path;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct S3ConnectionSettings {
@@ -71,26 +73,87 @@ impl S3ConnectionSettings {
         Ok(())
     }
 
+    pub async fn restore_workspace(&self, workspace: &Workspace) -> Result<()> {
+        self.validate_for_backup()?;
+
+        let client = self.client();
+        let bucket = self.bucket.trim();
+        let root = workspace.root();
+
+        let config_bytes = self.object_bytes(&client, "config.json").await?;
+        let mut content_objects = Vec::new();
+
+        for key in self.content_object_keys(&client, bucket).await? {
+            let bytes = self.object_bytes(&client, &key).await?;
+            content_objects.push((key, bytes));
+        }
+
+        for (key, bytes) in content_objects {
+            write_restore_object(root, &key, &bytes)?;
+        }
+        write_restore_object(root, "config.json", &config_bytes)?;
+
+        Ok(())
+    }
+
     pub async fn read_text_object(&self, key: &str) -> Result<String> {
         self.validate_for_backup()?;
 
-        let object = self
-            .client()
+        let bytes = self.object_bytes(&self.client(), key).await?;
+
+        String::from_utf8(bytes).map_err(|source| AppError::S3ConnectionFailed(source.to_string()))
+    }
+
+    async fn object_bytes(&self, client: &Client, key: &str) -> Result<Vec<u8>> {
+        let object = client
             .get_object()
             .bucket(self.bucket.trim())
             .key(key)
             .send()
             .await
             .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
-        let bytes = object
+
+        object
             .body
             .collect()
             .await
-            .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?
-            .into_bytes()
-            .to_vec();
+            .map(|body| body.into_bytes().to_vec())
+            .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))
+    }
 
-        String::from_utf8(bytes).map_err(|source| AppError::S3ConnectionFailed(source.to_string()))
+    async fn content_object_keys(&self, client: &Client, bucket: &str) -> Result<Vec<String>> {
+        let mut keys = Vec::new();
+        let mut continuation_token = None;
+
+        loop {
+            let mut request = client.list_objects_v2().bucket(bucket).prefix("content/");
+            if let Some(token) = continuation_token {
+                request = request.continuation_token(token);
+            }
+
+            let response = request
+                .send()
+                .await
+                .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
+
+            for object in response.contents() {
+                let Some(key) = object.key() else {
+                    continue;
+                };
+                if key == "content/" || key.ends_with('/') {
+                    continue;
+                }
+                validate_relative_content_path(key)?;
+                keys.push(key.to_owned());
+            }
+
+            continuation_token = response.next_continuation_token().map(str::to_owned);
+            if continuation_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(keys)
     }
 
     fn validate_for_backup(&self) -> Result<()> {
@@ -184,4 +247,12 @@ fn object_key(root: &Path, path: &Path) -> Result<String> {
     }
 
     Ok(parts.join("/"))
+}
+
+fn write_restore_object(root: &Path, key: &str, bytes: &[u8]) -> Result<()> {
+    if key != "config.json" {
+        validate_relative_content_path(key)?;
+    }
+
+    atomic_write(&root.join(key), bytes)
 }
