@@ -434,6 +434,37 @@ impl GimjiApp {
         }
     }
 
+    fn backup_workspace_to_s3(&mut self) {
+        self.flush_current();
+
+        let Some(workspace) = self.workspace.as_ref() else {
+            self.message = Some("Open a workspace before backing up to S3.".to_owned());
+            return;
+        };
+
+        let settings = self.s3_connection_settings();
+        self.s3_connection_status = S3ConnectionStatus::Testing;
+
+        let result = tokio::runtime::Runtime::new()
+            .map_err(|error| error.to_string())
+            .and_then(|runtime| {
+                runtime
+                    .block_on(settings.backup_workspace(workspace))
+                    .map_err(|error| error.to_string())
+            });
+
+        match result {
+            Ok(()) => {
+                self.s3_connection_status = S3ConnectionStatus::Connected;
+                self.message = Some("S3 backup successful.".to_owned());
+            }
+            Err(error) => {
+                self.s3_connection_status = S3ConnectionStatus::Error(error.clone());
+                self.message = Some(error);
+            }
+        }
+    }
+
     fn request_delete(&mut self, action: ConfirmAction) {
         self.pending_confirm = Some(action);
         self.remove_local_files_on_delete = false;
@@ -683,12 +714,18 @@ impl GimjiApp {
             {
                 self.test_s3_connection();
             }
-            ui.label(
-                egui::RichText::new(self.s3_connection_status.label())
-                    .small()
-                    .color(s3_connection_status_color(&self.s3_connection_status)),
-            );
+            if ui
+                .add_sized([74.0, 26.0], egui::Button::new("Backup").small())
+                .clicked()
+            {
+                self.backup_workspace_to_s3();
+            }
         });
+        ui.label(
+            egui::RichText::new(self.s3_connection_status.label())
+                .small()
+                .color(s3_connection_status_color(&self.s3_connection_status)),
+        );
     }
 
     fn render_main(&mut self, root_ui: &mut egui::Ui) {
@@ -1706,6 +1743,21 @@ mod tests {
         let mut app = app_with_workspace(workspace);
 
         app.test_s3_connection();
+
+        assert!(matches!(app.save_status, SaveStatus::Idle));
+        assert!(matches!(
+            app.s3_connection_status,
+            S3ConnectionStatus::Error(_)
+        ));
+    }
+
+    #[test]
+    fn s3_backup_validation_failure_does_not_change_save_status() {
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let mut app = app_with_workspace(workspace);
+
+        app.backup_workspace_to_s3();
 
         assert!(matches!(app.save_status, SaveStatus::Idle));
         assert!(matches!(
