@@ -106,7 +106,7 @@ impl GimjiApp {
             recent: RecentWorkspaces::load(),
             note_filter: String::new(),
             new_note_title: "New Note".to_owned(),
-            new_tab_title: "Markdown".to_owned(),
+            new_tab_title: String::new(),
             new_tab_type: TabType::Markdown,
             rename_note_title: String::new(),
             rename_tab_title: String::new(),
@@ -220,7 +220,7 @@ impl GimjiApp {
                 Ok(_) => {
                     self.renaming_tab = false;
                     self.rename_tab_id = None;
-                    self.new_tab_title = self.new_tab_type.label().to_owned();
+                    self.new_tab_title.clear();
                     self.loaded = None;
                     self.load_selected_content();
                 }
@@ -346,7 +346,6 @@ impl GimjiApp {
         }
         if let Some(tab) = self.current_tab() {
             self.rename_tab_title = tab.title.clone();
-            self.new_tab_title = self.new_tab_type.label().to_owned();
         }
     }
 
@@ -1877,7 +1876,7 @@ mod tests {
             recent: RecentWorkspaces::default(),
             note_filter: String::new(),
             new_note_title: "New Note".to_owned(),
-            new_tab_title: "Markdown".to_owned(),
+            new_tab_title: String::new(),
             new_tab_type: TabType::Markdown,
             rename_note_title: String::new(),
             rename_tab_title: String::new(),
@@ -1911,6 +1910,22 @@ mod tests {
         assert!(note_matches_filter("Project Notes", "NOTES"));
         assert!(note_matches_filter("Project Notes", ""));
         assert!(!note_matches_filter("Project Notes", "archive"));
+    }
+
+    #[test]
+    fn new_tab_title_starts_empty_and_stays_empty_after_adding_tab() {
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let mut workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        workspace.add_note("Project").expect("note");
+        let mut app = app_with_workspace(workspace);
+
+        assert_eq!(app.new_tab_title, "");
+
+        app.new_tab_title = "Board".to_owned();
+        app.new_tab_type = TabType::Kanban;
+        app.add_tab();
+
+        assert_eq!(app.new_tab_title, "");
     }
 
     #[test]
