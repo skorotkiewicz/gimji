@@ -1,3 +1,4 @@
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -26,6 +27,12 @@ const NOTE_HEADER_ACTION_HEIGHT: f32 = 36.0;
 const KANBAN_COLUMN_WIDTH: f32 = 280.0;
 const KANBAN_CARD_TEXT_WIDTH: f32 = 250.0;
 const KANBAN_CARD_TEXT_HEIGHT: f32 = 76.0;
+const DEFAULT_S3_REGION: &str = "us-east-1";
+const ENV_S3_ENDPOINT: &str = "GIMJI_S3_ENDPOINT";
+const ENV_S3_REGION: &str = "GIMJI_S3_REGION";
+const ENV_S3_BUCKET: &str = "GIMJI_S3_BUCKET";
+const ENV_S3_ACCESS_KEY: &str = "GIMJI_S3_ACCESS_KEY";
+const ENV_S3_SECRET_KEY: &str = "GIMJI_S3_SECRET_KEY";
 
 pub fn run() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -64,6 +71,7 @@ struct GimjiApp {
     s3_access_key_id: String,
     s3_secret_access_key: String,
     s3_connection_status: S3ConnectionStatus,
+    s3_settings_expanded: bool,
     message: Option<String>,
     // UI State
     editing_note_title: bool,
@@ -72,6 +80,7 @@ struct GimjiApp {
 impl GimjiApp {
     fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         configure_theme(&creation_context.egui_ctx);
+        let initial_s3_settings = initial_s3_connection_settings_from_environment();
 
         Self {
             workspace: None,
@@ -88,12 +97,13 @@ impl GimjiApp {
             save_status: SaveStatus::Idle,
             pending_confirm: None,
             remove_local_files_on_delete: false,
-            s3_endpoint_url: String::new(),
-            s3_region: "us-east-1".to_owned(),
-            s3_bucket: String::new(),
-            s3_access_key_id: String::new(),
-            s3_secret_access_key: String::new(),
+            s3_endpoint_url: initial_s3_settings.endpoint_url,
+            s3_region: initial_s3_settings.region,
+            s3_bucket: initial_s3_settings.bucket,
+            s3_access_key_id: initial_s3_settings.access_key_id,
+            s3_secret_access_key: initial_s3_settings.secret_access_key,
             s3_connection_status: S3ConnectionStatus::Idle,
+            s3_settings_expanded: false,
             message: None,
             editing_note_title: false,
         }
@@ -408,6 +418,10 @@ impl GimjiApp {
             access_key_id: self.s3_access_key_id.trim().to_owned(),
             secret_access_key: self.s3_secret_access_key.trim().to_owned(),
         }
+    }
+
+    fn toggle_s3_settings(&mut self) {
+        self.s3_settings_expanded = !self.s3_settings_expanded;
     }
 
     fn test_s3_connection(&mut self) {
@@ -725,7 +739,27 @@ impl GimjiApp {
     }
 
     fn render_s3_section(&mut self, ui: &mut egui::Ui) {
-        section_label(ui, "S3");
+        let label = if self.s3_settings_expanded {
+            "v S3"
+        } else {
+            "> S3"
+        };
+        if ui
+            .add_sized(
+                [ui.available_width(), 26.0],
+                egui::Button::new(label)
+                    .small()
+                    .fill(egui::Color32::TRANSPARENT),
+            )
+            .clicked()
+        {
+            self.toggle_s3_settings();
+        }
+
+        if !self.s3_settings_expanded {
+            return;
+        }
+
         ui.add(
             egui::TextEdit::singleline(&mut self.s3_endpoint_url)
                 .hint_text("Endpoint URL")
@@ -1235,6 +1269,22 @@ fn configure_theme(context: &egui::Context) {
     style.visuals.selection.bg_fill = ACTIVE_BG;
     style.visuals.hyperlink_color = ACCENT;
     context.set_global_style(style);
+}
+
+fn initial_s3_connection_settings_from_environment() -> S3ConnectionSettings {
+    initial_s3_connection_settings(|key| env::var(key).ok())
+}
+
+fn initial_s3_connection_settings(
+    mut get_env: impl FnMut(&str) -> Option<String>,
+) -> S3ConnectionSettings {
+    S3ConnectionSettings {
+        endpoint_url: get_env(ENV_S3_ENDPOINT).unwrap_or_default(),
+        region: get_env(ENV_S3_REGION).unwrap_or_else(|| DEFAULT_S3_REGION.to_owned()),
+        bucket: get_env(ENV_S3_BUCKET).unwrap_or_default(),
+        access_key_id: get_env(ENV_S3_ACCESS_KEY).unwrap_or_default(),
+        secret_access_key: get_env(ENV_S3_SECRET_KEY).unwrap_or_default(),
+    }
 }
 
 fn note_matches_filter(title: &str, filter: &str) -> bool {
@@ -1748,9 +1798,9 @@ mod tests {
     use super::{
         ConfirmAction, GimjiApp, KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH,
         KANBAN_COLUMN_WIDTH, NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, S3ConnectionStatus,
-        SaveStatus, kanban_card_text_area_size, kanban_column_area_size,
-        kanban_column_header_action_area_size, note_header_action_area_size, note_matches_filter,
-        tab_action_section_titles,
+        SaveStatus, initial_s3_connection_settings, kanban_card_text_area_size,
+        kanban_column_area_size, kanban_column_header_action_area_size,
+        note_header_action_area_size, note_matches_filter, tab_action_section_titles,
     };
 
     fn app_with_workspace(workspace: Workspace) -> GimjiApp {
@@ -1775,6 +1825,7 @@ mod tests {
             s3_access_key_id: String::new(),
             s3_secret_access_key: String::new(),
             s3_connection_status: S3ConnectionStatus::Idle,
+            s3_settings_expanded: false,
             message: None,
             editing_note_title: false,
         }
@@ -1807,6 +1858,37 @@ mod tests {
         assert_eq!(settings.bucket, "gimji");
         assert_eq!(settings.access_key_id, "minioadmin");
         assert_eq!(settings.secret_access_key, "minioadmin");
+    }
+
+    #[test]
+    fn s3_form_defaults_can_be_loaded_from_environment_variables() {
+        let settings = initial_s3_connection_settings(|key| match key {
+            "GIMJI_S3_ENDPOINT" => Some("http://192.168.0.125:9000".to_owned()),
+            "GIMJI_S3_REGION" => Some("us-east-1".to_owned()),
+            "GIMJI_S3_BUCKET" => Some("storage".to_owned()),
+            "GIMJI_S3_ACCESS_KEY" => Some("minioadmin".to_owned()),
+            "GIMJI_S3_SECRET_KEY" => Some("minioadmin".to_owned()),
+            _ => None,
+        });
+
+        assert_eq!(settings.endpoint_url, "http://192.168.0.125:9000");
+        assert_eq!(settings.region, "us-east-1");
+        assert_eq!(settings.bucket, "storage");
+        assert_eq!(settings.access_key_id, "minioadmin");
+        assert_eq!(settings.secret_access_key, "minioadmin");
+    }
+
+    #[test]
+    fn s3_settings_are_hidden_until_section_is_toggled() {
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let mut app = app_with_workspace(workspace);
+
+        assert!(!app.s3_settings_expanded);
+
+        app.toggle_s3_settings();
+
+        assert!(app.s3_settings_expanded);
     }
 
     #[test]
