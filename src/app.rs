@@ -53,6 +53,8 @@ struct GimjiApp {
     new_tab_type: TabType,
     rename_note_title: String,
     rename_tab_title: String,
+    renaming_tab: bool,
+    rename_tab_id: Option<String>,
     save_status: SaveStatus,
     pending_confirm: Option<ConfirmAction>,
     message: Option<String>,
@@ -74,6 +76,8 @@ impl GimjiApp {
             new_tab_type: TabType::Markdown,
             rename_note_title: String::new(),
             rename_tab_title: String::new(),
+            renaming_tab: false,
+            rename_tab_id: None,
             save_status: SaveStatus::Idle,
             pending_confirm: None,
             message: None,
@@ -95,6 +99,8 @@ impl GimjiApp {
 
     fn open_workspace(&mut self, path: PathBuf) {
         self.flush_current();
+        self.renaming_tab = false;
+        self.rename_tab_id = None;
         match Workspace::open(&path) {
             Ok(workspace) => {
                 self.workspace = Some(workspace);
@@ -108,6 +114,8 @@ impl GimjiApp {
 
     fn create_workspace(&mut self, path: PathBuf) {
         self.flush_current();
+        self.renaming_tab = false;
+        self.rename_tab_id = None;
         match Workspace::create(&path) {
             Ok(workspace) => {
                 self.workspace = Some(workspace);
@@ -157,6 +165,8 @@ impl GimjiApp {
         if let Some(workspace) = &mut self.workspace {
             match workspace.add_tab(&note_id, &title, self.new_tab_type) {
                 Ok(_) => {
+                    self.renaming_tab = false;
+                    self.rename_tab_id = None;
                     self.new_tab_title = self.new_tab_type.label().to_owned();
                     self.loaded = None;
                     self.load_selected_content();
@@ -196,12 +206,11 @@ impl GimjiApp {
             return;
         }
 
-        let Some(tab_id) = self
-            .workspace
-            .as_ref()
-            .and_then(|workspace| workspace.selected_tab_id())
-            .map(str::to_owned)
-        else {
+        let Some(tab_id) = self.rename_tab_id.clone().or_else(|| {
+            self.workspace
+                .as_ref()
+                .and_then(|workspace| workspace.selected_tab_id().map(str::to_owned))
+        }) else {
             return;
         };
 
@@ -214,6 +223,8 @@ impl GimjiApp {
 
     fn select_note(&mut self, note_id: String) {
         self.flush_current();
+        self.renaming_tab = false;
+        self.rename_tab_id = None;
         if let Some(workspace) = &mut self.workspace {
             match workspace.select_note(&note_id) {
                 Ok(()) => {
@@ -228,6 +239,8 @@ impl GimjiApp {
 
     fn select_tab(&mut self, tab_id: String) {
         self.flush_current();
+        self.renaming_tab = false;
+        self.rename_tab_id = None;
         if let Some(workspace) = &mut self.workspace {
             match workspace.select_tab(&tab_id) {
                 Ok(()) => {
@@ -384,6 +397,8 @@ impl GimjiApp {
                 if let Some(workspace) = &mut self.workspace {
                     match workspace.delete_note_config(&note_id) {
                         Ok(()) => {
+                            self.renaming_tab = false;
+                            self.rename_tab_id = None;
                             self.loaded = None;
                             self.load_selected_content();
                         }
@@ -395,6 +410,8 @@ impl GimjiApp {
                 if let Some(workspace) = &mut self.workspace {
                     match workspace.delete_tab_config(&tab_id) {
                         Ok(()) => {
+                            self.renaming_tab = false;
+                            self.rename_tab_id = None;
                             self.loaded = None;
                             self.load_selected_content();
                         }
@@ -430,8 +447,8 @@ impl GimjiApp {
     fn render_sidebar(&mut self, root_ui: &mut egui::Ui) {
         egui::Panel::left("sidebar")
             .resizable(true)
-            .default_size(280.0)
-            .size_range(200.0..=300.0)
+            .default_size(200.0)
+            .size_range(180.0..=200.0)
             .frame(
                 egui::Frame::new()
                     .fill(SIDEBAR_BG)
@@ -595,8 +612,8 @@ impl GimjiApp {
 
                 ui.add_space(4.0);
 
-                // 3. Tab Toolbar (Combined Add/Edit)
-                self.render_tab_toolbar(ui, &selected_tab);
+                // 3. Tab Toolbar
+                self.render_tab_toolbar(ui);
 
                 ui.add_space(8.0);
 
@@ -671,24 +688,83 @@ impl GimjiApp {
                                 .map(str::to_owned);
                             for tab in &note.tabs {
                                 let selected = selected_tab.as_deref() == Some(tab.id.as_str());
-                                let label = format!("{} {}", tab.title, tab.tab_type.as_str());
                                 let fill = if selected {
                                     ACTIVE_BG
                                 } else {
                                     egui::Color32::TRANSPARENT
                                 };
 
-                                if ui
-                                    .add(
+                                if selected
+                                    && self.renaming_tab
+                                    && self.rename_tab_id.as_deref() == Some(tab.id.as_str())
+                                {
+                                    ui.horizontal(|ui| {
+                                        let response = ui.add_sized(
+                                            [140.0, 28.0],
+                                            egui::TextEdit::singleline(&mut self.rename_tab_title)
+                                                .hint_text("Tab name")
+                                                .margin(egui::Vec2::new(4.0, 2.0)),
+                                        );
+
+                                        let mut save = false;
+                                        let mut cancel = false;
+
+                                        if response.lost_focus() {
+                                            save = true;
+                                        }
+                                        if ui.small_button("Save").clicked() {
+                                            save = true;
+                                        }
+                                        if ui.small_button("Cancel").clicked() {
+                                            cancel = true;
+                                        }
+
+                                        if cancel {
+                                            self.renaming_tab = false;
+                                            self.rename_tab_id = None;
+                                            self.refresh_rename_buffers();
+                                        } else if save {
+                                            self.rename_current_tab();
+                                            self.renaming_tab = false;
+                                            self.rename_tab_id = None;
+                                        }
+                                    });
+                                } else {
+                                    let label = format!("{} {}", tab.title, tab.tab_type.as_str());
+                                    let mut response = ui.add(
                                         egui::Button::new(egui::RichText::new(label).size(14.0))
                                             .selected(selected)
                                             .fill(fill)
                                             .frame(false)
                                             .sense(egui::Sense::click()),
-                                    )
-                                    .clicked()
-                                {
-                                    self.select_tab(tab.id.clone());
+                                    );
+                                    response = response.on_hover_text(format!(
+                                        "Type: {}\nRight-click for actions",
+                                        tab.tab_type.label()
+                                    ));
+
+                                    response.context_menu(|ui| {
+                                        ui.set_min_width(120.0);
+                                        if ui.button("Rename").clicked() {
+                                            if !selected {
+                                                self.select_tab(tab.id.clone());
+                                            }
+                                            self.renaming_tab = true;
+                                            self.rename_tab_id = Some(tab.id.clone());
+                                            self.refresh_rename_buffers();
+                                            ui.close();
+                                        }
+                                        ui.separator();
+                                        if ui.button("Delete").clicked() {
+                                            self.pending_confirm =
+                                                Some(ConfirmAction::DeleteTab(tab.id.clone()));
+                                            ui.close();
+                                        }
+                                    });
+
+                                    if response.clicked() {
+                                        self.select_tab(tab.id.clone());
+                                    }
                                 }
                             }
                         });
@@ -696,7 +772,7 @@ impl GimjiApp {
             });
     }
 
-    fn render_tab_toolbar(&mut self, ui: &mut egui::Ui, selected_tab: &Option<crate::models::Tab>) {
+    fn render_tab_toolbar(&mut self, ui: &mut egui::Ui) {
         panel_frame(egui::Color32::from_rgb(25, 27, 30))
             .inner_margin(egui::Margin::symmetric(12, 8))
             .show(ui, |ui| {
@@ -730,45 +806,6 @@ impl GimjiApp {
                     {
                         self.add_tab();
                     }
-
-                    ui.add_space(20.0);
-                    ui.separator();
-                    ui.add_space(20.0);
-
-                    // --- ACTIVE TAB SECTION ---
-                    let has_tab = selected_tab.is_some();
-                    ui.label(egui::RichText::new("Active:").small().color(TEXT_MUTED));
-
-                    ui.add_enabled_ui(has_tab, |ui| {
-                        ui.add_sized(
-                            [160.0, 24.0],
-                            egui::TextEdit::singleline(&mut self.rename_tab_title)
-                                .hint_text("Tab name")
-                                .margin(egui::Vec2::new(4.0, 2.0)),
-                        );
-
-                        if ui
-                            .add_sized([60.0, 24.0], egui::Button::new("Rename").small())
-                            .clicked()
-                        {
-                            self.rename_current_tab();
-                        }
-
-                        if let Some(tab) = selected_tab {
-                            if ui
-                                .button("Delete")
-                                .on_hover_text("Remove tab metadata only")
-                                .clicked()
-                            {
-                                self.pending_confirm =
-                                    Some(ConfirmAction::DeleteTab(tab.id.clone()));
-                            }
-                        } else {
-                            ui.add_enabled_ui(false, |ui| {
-                                let _ = ui.button("Delete");
-                            });
-                        }
-                    });
                 });
             });
     }
@@ -964,8 +1001,8 @@ fn kanban_card_text_area_size() -> egui::Vec2 {
 }
 
 #[cfg(test)]
-fn tab_action_section_titles() -> [&'static str; 2] {
-    ["Create Tab", "Selected Tab"]
+fn tab_action_section_titles() -> [&'static str; 1] {
+    ["Create Tab"]
 }
 
 fn panel_frame(fill: egui::Color32) -> egui::Frame {
@@ -1434,12 +1471,35 @@ fn shorten_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::models::TabType;
+    use crate::storage::Workspace;
+
     use super::{
-        KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
-        NOTE_HEADER_ACTION_HEIGHT, kanban_card_text_area_size, kanban_column_area_size,
-        kanban_column_header_action_area_size, note_header_action_area_size, note_matches_filter,
-        tab_action_section_titles,
+        GimjiApp, KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
+        NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, SaveStatus, kanban_card_text_area_size,
+        kanban_column_area_size, kanban_column_header_action_area_size,
+        note_header_action_area_size, note_matches_filter, tab_action_section_titles,
     };
+
+    fn app_with_workspace(workspace: Workspace) -> GimjiApp {
+        GimjiApp {
+            workspace: Some(workspace),
+            loaded: None,
+            recent: RecentWorkspaces::default(),
+            note_filter: String::new(),
+            new_note_title: "New Note".to_owned(),
+            new_tab_title: "Markdown".to_owned(),
+            new_tab_type: TabType::Markdown,
+            rename_note_title: String::new(),
+            rename_tab_title: String::new(),
+            renaming_tab: false,
+            rename_tab_id: None,
+            save_status: SaveStatus::Idle,
+            pending_confirm: None,
+            message: None,
+            editing_note_title: false,
+        }
+    }
 
     #[test]
     fn note_filter_ignores_case_and_surrounding_whitespace() {
@@ -1482,9 +1542,35 @@ mod tests {
     }
 
     #[test]
-    fn tab_actions_are_split_between_create_and_selected_tab_sections() {
+    fn tab_toolbar_only_contains_create_tab_actions() {
         let sections = tab_action_section_titles();
 
-        assert_eq!(sections, ["Create Tab", "Selected Tab"]);
+        assert_eq!(&sections[..], ["Create Tab"]);
+    }
+
+    #[test]
+    fn tab_context_rename_targets_the_tab_opened_from_the_menu() {
+        let temp_dir = tempfile::tempdir().expect("temporary workspace");
+        let mut workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let note_id = workspace.add_note("Project").expect("note");
+        let first_tab_id = workspace
+            .selected_tab_id()
+            .expect("first tab selected")
+            .to_owned();
+        let second_tab_id = workspace
+            .add_tab(&note_id, "Second", TabType::Markdown)
+            .expect("second tab");
+
+        let mut app = app_with_workspace(workspace);
+        app.rename_tab_id = Some(first_tab_id.clone());
+        app.rename_tab_title = "Renamed From Menu".to_owned();
+
+        app.rename_current_tab();
+
+        let workspace = app.workspace.as_ref().expect("workspace remains open");
+        let renamed = workspace.find_tab(&first_tab_id).expect("renamed tab");
+        let selected = workspace.find_tab(&second_tab_id).expect("selected tab");
+        assert_eq!(renamed.title, "Renamed From Menu");
+        assert_eq!(selected.title, "Second");
     }
 }
