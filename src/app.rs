@@ -1,7 +1,7 @@
 #[cfg(feature = "s3")]
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use chrono::Local;
@@ -174,6 +174,10 @@ impl GimjiApp {
             }
             Err(error) => self.set_error(error.to_string()),
         }
+    }
+
+    fn remove_recent_workspace(&mut self, path: &Path) {
+        self.recent.remove(path);
     }
 
     fn add_note(&mut self) {
@@ -678,16 +682,24 @@ impl GimjiApp {
                         section_label(ui, "Recent");
                         for path in self.recent.paths.clone() {
                             let label = path.display().to_string();
-                            if ui
+                            let response = ui
                                 .add_sized(
                                     [ui.available_width(), 24.0],
                                     egui::Button::new(shorten_path(&label))
                                         .fill(egui::Color32::TRANSPARENT)
                                         .small(),
                                 )
-                                .on_hover_text(label)
-                                .clicked()
-                            {
+                                .on_hover_text(format!("{label}\nRight-click for actions"));
+
+                            response.context_menu(|ui| {
+                                ui.set_min_width(120.0);
+                                if ui.button("Delete").clicked() {
+                                    self.remove_recent_workspace(&path);
+                                    ui.close();
+                                }
+                            });
+
+                            if response.clicked() {
                                 self.open_workspace(path);
                             }
                         }
@@ -1273,6 +1285,14 @@ impl RecentWorkspaces {
         self.save();
     }
 
+    fn remove(&mut self, path: &Path) {
+        let original_len = self.paths.len();
+        self.paths.retain(|recent| recent != path);
+        if self.paths.len() != original_len {
+            self.save();
+        }
+    }
+
     fn save(&self) {
         let Some(path) = recent_workspaces_path() else {
             return;
@@ -1836,6 +1856,8 @@ fn shorten_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::models::TabType;
     use crate::storage::Workspace;
 
@@ -1889,6 +1911,38 @@ mod tests {
         assert!(note_matches_filter("Project Notes", "NOTES"));
         assert!(note_matches_filter("Project Notes", ""));
         assert!(!note_matches_filter("Project Notes", "archive"));
+    }
+
+    #[test]
+    fn removing_recent_workspace_deletes_only_selected_path() {
+        let first = PathBuf::from("/tmp/gimji-first");
+        let second = PathBuf::from("/tmp/gimji-second");
+        let mut recent = RecentWorkspaces {
+            paths: vec![first.clone(), second.clone()],
+        };
+
+        recent.remove(&first);
+
+        assert_eq!(recent.paths, vec![second]);
+    }
+
+    #[test]
+    fn deleting_recent_workspace_from_menu_does_not_open_it() {
+        let open_dir = tempfile::tempdir().expect("open workspace");
+        let recent_dir = tempfile::tempdir().expect("recent workspace");
+        let open_workspace = Workspace::create(open_dir.path()).expect("workspace");
+        let open_root = open_workspace.root().to_path_buf();
+        let recent_path = recent_dir.path().to_path_buf();
+        let mut app = app_with_workspace(open_workspace);
+        app.recent.paths = vec![open_root.clone(), recent_path.clone()];
+
+        app.remove_recent_workspace(&recent_path);
+
+        assert_eq!(
+            app.workspace.as_ref().expect("workspace").root(),
+            open_root.as_path()
+        );
+        assert_eq!(app.recent.paths, vec![open_root]);
     }
 
     #[cfg(feature = "s3")]
