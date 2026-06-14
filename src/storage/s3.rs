@@ -88,10 +88,11 @@ impl S3ConnectionSettings {
             content_objects.push((key, bytes));
         }
 
+        // Write config.json first to ensure workspace metadata is updated before content files
+        write_restore_object(root, "config.json", &config_bytes)?;
         for (key, bytes) in content_objects {
             write_restore_object(root, &key, &bytes)?;
         }
-        write_restore_object(root, "config.json", &config_bytes)?;
 
         Ok(())
     }

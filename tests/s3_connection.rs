@@ -1,3 +1,5 @@
+#![cfg(feature = "s3")]
+
 use gimji::models::TabContent;
 use gimji::storage::S3ConnectionSettings;
 use gimji::storage::Workspace;

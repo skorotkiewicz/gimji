@@ -194,11 +194,11 @@ impl Workspace {
             None
         };
 
-        self.delete_note_config(note_id)?;
-
-        if let Some(paths) = content_paths {
-            self.remove_local_files(&paths)?;
+        if let Some(paths) = &content_paths {
+            self.remove_local_files(paths)?;
         }
+
+        self.delete_note_config(note_id)?;
 
         Ok(())
     }
@@ -228,11 +228,11 @@ impl Workspace {
             None
         };
 
-        self.delete_tab_config(tab_id)?;
-
-        if let Some(paths) = content_paths {
-            self.remove_local_files(&paths)?;
+        if let Some(paths) = &content_paths {
+            self.remove_local_files(paths)?;
         }
+
+        self.delete_tab_config(tab_id)?;
 
         Ok(())
     }

@@ -1,3 +1,4 @@
+#[cfg(feature = "s3")]
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -11,7 +12,10 @@ use serde::{Deserialize, Serialize};
 use crate::models::{
     CalendarData, CalendarEvent, KanbanBoard, KanbanCard, TabContent, TabType, TodoItem, TodoList,
 };
-use crate::storage::{DeleteOptions, S3ConnectionSettings, Workspace};
+#[cfg(feature = "s3")]
+use crate::storage::S3ConnectionSettings;
+use crate::storage::atomic::atomic_write;
+use crate::storage::{DeleteOptions, Workspace};
 
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(700);
 const APP_BG: egui::Color32 = egui::Color32::from_rgb(18, 19, 21);
@@ -27,11 +31,17 @@ const NOTE_HEADER_ACTION_HEIGHT: f32 = 36.0;
 const KANBAN_COLUMN_WIDTH: f32 = 280.0;
 const KANBAN_CARD_TEXT_WIDTH: f32 = 250.0;
 const KANBAN_CARD_TEXT_HEIGHT: f32 = 76.0;
+#[cfg(feature = "s3")]
 const DEFAULT_S3_REGION: &str = "us-east-1";
+#[cfg(feature = "s3")]
 const ENV_S3_ENDPOINT: &str = "GIMJI_S3_ENDPOINT";
+#[cfg(feature = "s3")]
 const ENV_S3_REGION: &str = "GIMJI_S3_REGION";
+#[cfg(feature = "s3")]
 const ENV_S3_BUCKET: &str = "GIMJI_S3_BUCKET";
+#[cfg(feature = "s3")]
 const ENV_S3_ACCESS_KEY: &str = "GIMJI_S3_ACCESS_KEY";
+#[cfg(feature = "s3")]
 const ENV_S3_SECRET_KEY: &str = "GIMJI_S3_SECRET_KEY";
 
 pub fn run() -> eframe::Result<()> {
@@ -65,12 +75,19 @@ struct GimjiApp {
     save_status: SaveStatus,
     pending_confirm: Option<ConfirmAction>,
     remove_local_files_on_delete: bool,
+    #[cfg(feature = "s3")]
     s3_endpoint_url: String,
+    #[cfg(feature = "s3")]
     s3_region: String,
+    #[cfg(feature = "s3")]
     s3_bucket: String,
+    #[cfg(feature = "s3")]
     s3_access_key_id: String,
+    #[cfg(feature = "s3")]
     s3_secret_access_key: String,
+    #[cfg(feature = "s3")]
     s3_connection_status: S3ConnectionStatus,
+    #[cfg(feature = "s3")]
     s3_settings_expanded: bool,
     message: Option<String>,
     // UI State
@@ -80,6 +97,7 @@ struct GimjiApp {
 impl GimjiApp {
     fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         configure_theme(&creation_context.egui_ctx);
+        #[cfg(feature = "s3")]
         let initial_s3_settings = initial_s3_connection_settings_from_environment();
 
         Self {
@@ -97,12 +115,19 @@ impl GimjiApp {
             save_status: SaveStatus::Idle,
             pending_confirm: None,
             remove_local_files_on_delete: false,
+            #[cfg(feature = "s3")]
             s3_endpoint_url: initial_s3_settings.endpoint_url,
+            #[cfg(feature = "s3")]
             s3_region: initial_s3_settings.region,
+            #[cfg(feature = "s3")]
             s3_bucket: initial_s3_settings.bucket,
+            #[cfg(feature = "s3")]
             s3_access_key_id: initial_s3_settings.access_key_id,
+            #[cfg(feature = "s3")]
             s3_secret_access_key: initial_s3_settings.secret_access_key,
+            #[cfg(feature = "s3")]
             s3_connection_status: S3ConnectionStatus::Idle,
+            #[cfg(feature = "s3")]
             s3_settings_expanded: false,
             message: None,
             editing_note_title: false,
@@ -410,6 +435,7 @@ impl GimjiApp {
         self.save_status = SaveStatus::Error(message);
     }
 
+    #[cfg(feature = "s3")]
     fn s3_connection_settings(&self) -> S3ConnectionSettings {
         S3ConnectionSettings {
             endpoint_url: self.s3_endpoint_url.trim().to_owned(),
@@ -420,10 +446,12 @@ impl GimjiApp {
         }
     }
 
+    #[cfg(feature = "s3")]
     fn toggle_s3_settings(&mut self) {
         self.s3_settings_expanded = !self.s3_settings_expanded;
     }
 
+    #[cfg(feature = "s3")]
     fn test_s3_connection(&mut self) {
         let settings = self.s3_connection_settings();
         self.s3_connection_status = S3ConnectionStatus::Testing;
@@ -448,6 +476,7 @@ impl GimjiApp {
         }
     }
 
+    #[cfg(feature = "s3")]
     fn backup_workspace_to_s3(&mut self) {
         self.flush_current();
 
@@ -479,6 +508,7 @@ impl GimjiApp {
         }
     }
 
+    #[cfg(feature = "s3")]
     fn restore_workspace_from_s3(&mut self) {
         self.flush_current();
 
@@ -521,6 +551,7 @@ impl GimjiApp {
         }
     }
 
+    #[cfg(feature = "s3")]
     fn request_s3_restore(&mut self) {
         self.pending_confirm = Some(ConfirmAction::RestoreWorkspaceFromS3);
         self.remove_local_files_on_delete = false;
@@ -569,6 +600,7 @@ impl GimjiApp {
                     }
                 }
             }
+            #[cfg(feature = "s3")]
             ConfirmAction::RestoreWorkspaceFromS3 => {
                 self.restore_workspace_from_s3();
             }
@@ -630,10 +662,13 @@ impl GimjiApp {
                         }
                     });
 
-                    ui.add_space(12.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-                    self.render_s3_section(ui);
+                    #[cfg(feature = "s3")]
+                    {
+                        ui.add_space(12.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+                        self.render_s3_section(ui);
+                    }
 
                     // Recent
                     if !self.recent.paths.is_empty() {
@@ -738,6 +773,7 @@ impl GimjiApp {
             });
     }
 
+    #[cfg(feature = "s3")]
     fn render_s3_section(&mut self, ui: &mut egui::Ui) {
         let label = if self.s3_settings_expanded {
             "v S3"
@@ -1098,11 +1134,13 @@ impl GimjiApp {
             ConfirmAction::DeleteTab(_) => {
                 "Delete this tab from config? Content file stays on disk."
             }
+            #[cfg(feature = "s3")]
             ConfirmAction::RestoreWorkspaceFromS3 => {
                 "Restore this workspace from S3? Local config and content files will be overwritten."
             }
         };
         let confirm_label = match action {
+            #[cfg(feature = "s3")]
             ConfirmAction::RestoreWorkspaceFromS3 => "Restore",
             _ => "Delete",
         };
@@ -1183,6 +1221,7 @@ impl SaveStatus {
     }
 }
 
+#[cfg(feature = "s3")]
 #[derive(Debug, Clone)]
 enum S3ConnectionStatus {
     Idle,
@@ -1191,6 +1230,7 @@ enum S3ConnectionStatus {
     Error(String),
 }
 
+#[cfg(feature = "s3")]
 impl S3ConnectionStatus {
     fn label(&self) -> String {
         match self {
@@ -1206,6 +1246,7 @@ impl S3ConnectionStatus {
 enum ConfirmAction {
     DeleteNote(String),
     DeleteTab(String),
+    #[cfg(feature = "s3")]
     RestoreWorkspaceFromS3,
 }
 
@@ -1241,8 +1282,8 @@ impl RecentWorkspaces {
         {
             return;
         }
-        if let Ok(text) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(path, text);
+        if let Ok(bytes) = serde_json::to_vec_pretty(self) {
+            let _ = atomic_write(&path, &bytes);
         }
     }
 }
@@ -1271,10 +1312,12 @@ fn configure_theme(context: &egui::Context) {
     context.set_global_style(style);
 }
 
+#[cfg(feature = "s3")]
 fn initial_s3_connection_settings_from_environment() -> S3ConnectionSettings {
     initial_s3_connection_settings(|key| env::var(key).ok())
 }
 
+#[cfg(feature = "s3")]
 fn initial_s3_connection_settings(
     mut get_env: impl FnMut(&str) -> Option<String>,
 ) -> S3ConnectionSettings {
@@ -1335,6 +1378,7 @@ fn status_color(status: &SaveStatus) -> egui::Color32 {
     }
 }
 
+#[cfg(feature = "s3")]
 fn s3_connection_status_color(status: &S3ConnectionStatus) -> egui::Color32 {
     match status {
         S3ConnectionStatus::Idle => TEXT_MUTED,
@@ -1795,10 +1839,11 @@ mod tests {
     use crate::models::TabType;
     use crate::storage::Workspace;
 
+    #[cfg(feature = "s3")]
+    use super::{ConfirmAction, S3ConnectionStatus, initial_s3_connection_settings};
     use super::{
-        ConfirmAction, GimjiApp, KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH,
-        KANBAN_COLUMN_WIDTH, NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, S3ConnectionStatus,
-        SaveStatus, initial_s3_connection_settings, kanban_card_text_area_size,
+        GimjiApp, KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
+        NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, SaveStatus, kanban_card_text_area_size,
         kanban_column_area_size, kanban_column_header_action_area_size,
         note_header_action_area_size, note_matches_filter, tab_action_section_titles,
     };
@@ -1819,12 +1864,19 @@ mod tests {
             save_status: SaveStatus::Idle,
             pending_confirm: None,
             remove_local_files_on_delete: false,
+            #[cfg(feature = "s3")]
             s3_endpoint_url: String::new(),
+            #[cfg(feature = "s3")]
             s3_region: "us-east-1".to_owned(),
+            #[cfg(feature = "s3")]
             s3_bucket: String::new(),
+            #[cfg(feature = "s3")]
             s3_access_key_id: String::new(),
+            #[cfg(feature = "s3")]
             s3_secret_access_key: String::new(),
+            #[cfg(feature = "s3")]
             s3_connection_status: S3ConnectionStatus::Idle,
+            #[cfg(feature = "s3")]
             s3_settings_expanded: false,
             message: None,
             editing_note_title: false,
@@ -1839,6 +1891,7 @@ mod tests {
         assert!(!note_matches_filter("Project Notes", "archive"));
     }
 
+    #[cfg(feature = "s3")]
     #[test]
     fn app_builds_s3_connection_settings_from_form_fields() {
         let temp_dir = tempfile::tempdir().expect("temp workspace");
@@ -1860,6 +1913,7 @@ mod tests {
         assert_eq!(settings.secret_access_key, "minioadmin");
     }
 
+    #[cfg(feature = "s3")]
     #[test]
     fn s3_form_defaults_can_be_loaded_from_environment_variables() {
         let settings = initial_s3_connection_settings(|key| match key {
@@ -1878,6 +1932,7 @@ mod tests {
         assert_eq!(settings.secret_access_key, "minioadmin");
     }
 
+    #[cfg(feature = "s3")]
     #[test]
     fn s3_settings_are_hidden_until_section_is_toggled() {
         let temp_dir = tempfile::tempdir().expect("temp workspace");
@@ -1891,6 +1946,7 @@ mod tests {
         assert!(app.s3_settings_expanded);
     }
 
+    #[cfg(feature = "s3")]
     #[test]
     fn s3_connection_validation_failure_does_not_change_save_status() {
         let temp_dir = tempfile::tempdir().expect("temp workspace");
@@ -1906,6 +1962,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "s3")]
     #[test]
     fn s3_backup_validation_failure_does_not_change_save_status() {
         let temp_dir = tempfile::tempdir().expect("temp workspace");
@@ -1921,6 +1978,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "s3")]
     #[test]
     fn s3_restore_button_requests_confirmation_before_overwriting_workspace() {
         let temp_dir = tempfile::tempdir().expect("temp workspace");

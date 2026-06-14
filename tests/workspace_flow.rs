@@ -96,6 +96,53 @@ fn workspace_round_trips_metadata_and_tab_content_separately() {
 }
 
 #[test]
+fn deleting_note_removes_local_files_before_config_to_avoid_orphaned_metadata() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let workspace_path = temp_dir.path();
+        let content_dir = workspace_path.join("content");
+
+        let mut workspace = Workspace::create(workspace_path).expect("create workspace");
+        let note_id = workspace.add_note("Protected Note").expect("add note");
+        let content_file = workspace.config().notes[0].tabs[0].file_name.clone();
+        // The file_name already includes "content/" prefix
+        let content_path = workspace_path.join(&content_file);
+        assert!(
+            content_path.exists(),
+            "content file should exist at {:?}",
+            content_path
+        );
+
+        fs::set_permissions(&content_path, fs::Permissions::from_mode(0o444))
+            .expect("make content file read-only");
+        fs::set_permissions(&content_dir, fs::Permissions::from_mode(0o555))
+            .expect("make content dir read-only");
+
+        let result = workspace.delete_note(&note_id, DeleteOptions::remove_local_files());
+
+        fs::set_permissions(&content_dir, fs::Permissions::from_mode(0o755))
+            .expect("restore dir permissions for cleanup");
+
+        assert!(
+            result.is_err(),
+            "delete should fail when file removal fails on Unix, got {:?}",
+            result
+        );
+        assert!(
+            !workspace.config().notes.is_empty(),
+            "note should still exist in config when file removal fails"
+        );
+
+        fs::set_permissions(&content_path, fs::Permissions::from_mode(0o644))
+            .expect("restore file permissions for cleanup");
+        fs::remove_file(&content_path).ok();
+    }
+}
+
+#[test]
 fn deleting_note_with_default_options_keeps_local_content_files() {
     let temp_dir = tempfile::tempdir().expect("temp workspace");
     let workspace_path = temp_dir.path();

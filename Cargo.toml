@@ -3,8 +3,12 @@ name = "gimji"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+s3 = ["dep:aws-sdk-s3", "dep:tokio"]
+
 [dependencies]
-aws-sdk-s3 = "1.136.0"
+aws-sdk-s3 = { version = "1.136.0", optional = true }
 chrono = { version = "0.4.45", features = ["serde", "clock"] }
 directories = "6.0.0"
 eframe = "0.34.3"
@@ -13,6 +17,6 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["rt-multi-thread"], optional = true }
 tracing-subscriber = "0.3.23"
 uuid = { version = "1.23.3", features = ["v4", "serde"] }
