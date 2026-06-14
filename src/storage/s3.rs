@@ -88,11 +88,7 @@ impl S3ConnectionSettings {
             content_objects.push((key, bytes));
         }
 
-        // Write config.json first to ensure workspace metadata is updated before content files
-        write_restore_object(root, "config.json", &config_bytes)?;
-        for (key, bytes) in content_objects {
-            write_restore_object(root, &key, &bytes)?;
-        }
+        write_restore_objects(root, &config_bytes, &content_objects)?;
 
         Ok(())
     }
@@ -256,4 +252,38 @@ fn write_restore_object(root: &Path, key: &str, bytes: &[u8]) -> Result<()> {
     }
 
     atomic_write(&root.join(key), bytes)
+}
+
+fn write_restore_objects(
+    root: &Path,
+    config_bytes: &[u8],
+    content_objects: &[(String, Vec<u8>)],
+) -> Result<()> {
+    for (key, bytes) in content_objects {
+        write_restore_object(root, key, bytes)?;
+    }
+    write_restore_object(root, "config.json", config_bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn restore_objects_do_not_replace_config_when_content_write_fails() {
+        let temp_dir = tempfile::tempdir().expect("temporary workspace");
+        let root = temp_dir.path();
+        fs::write(root.join("config.json"), "old config").expect("write old config");
+        let content_objects = vec![("../outside.md".to_owned(), b"new content".to_vec())];
+
+        let error = write_restore_objects(root, b"new config", &content_objects).unwrap_err();
+
+        assert!(error.to_string().contains("invalid content path"));
+        assert_eq!(
+            fs::read_to_string(root.join("config.json")).expect("read config"),
+            "old config"
+        );
+    }
 }
