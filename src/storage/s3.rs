@@ -24,6 +24,7 @@ pub struct S3ConnectionSettings {
     pub endpoint_url: String,
     pub region: String,
     pub bucket: String,
+    pub prefix: String,
     pub access_key_id: String,
     pub secret_access_key: String,
 }
@@ -71,7 +72,7 @@ impl S3ConnectionSettings {
             client
                 .put_object()
                 .bucket(bucket)
-                .key(&file.key)
+                .key(self.object_key(&file.key))
                 .body(ByteStream::from(bytes))
                 .send()
                 .await
@@ -84,7 +85,7 @@ impl S3ConnectionSettings {
         client
             .put_object()
             .bucket(bucket)
-            .key(BACKUP_MANIFEST_KEY)
+            .key(self.object_key(BACKUP_MANIFEST_KEY))
             .body(ByteStream::from(manifest_bytes))
             .send()
             .await
@@ -100,7 +101,9 @@ impl S3ConnectionSettings {
         let bucket = self.bucket.trim();
         let root = workspace.root();
 
-        let config_bytes = self.object_bytes(&client, "config.json").await?;
+        let config_bytes = self
+            .object_bytes(&client, &self.object_key("config.json"))
+            .await?;
         let mut content_objects = Vec::new();
 
         let manifest = self.backup_manifest(&client, bucket).await?;
@@ -110,7 +113,7 @@ impl S3ConnectionSettings {
         };
 
         for key in content_keys {
-            let bytes = self.object_bytes(&client, &key).await?;
+            let bytes = self.object_bytes(&client, &self.object_key(&key)).await?;
             content_objects.push((key, bytes));
         }
 
@@ -126,9 +129,35 @@ impl S3ConnectionSettings {
     pub async fn read_text_object(&self, key: &str) -> Result<String> {
         self.validate_for_backup()?;
 
-        let bytes = self.object_bytes(&self.client(), key).await?;
+        let bytes = self
+            .object_bytes(&self.client(), &self.object_key(key))
+            .await?;
 
         String::from_utf8(bytes).map_err(|source| AppError::S3ConnectionFailed(source.to_string()))
+    }
+
+    fn object_key(&self, key: &str) -> String {
+        let prefix = normalize_prefix(&self.prefix);
+        if prefix.is_empty() {
+            key.to_owned()
+        } else {
+            format!("{prefix}/{key}")
+        }
+    }
+
+    fn object_prefix(&self, prefix: &str) -> String {
+        self.object_key(prefix)
+    }
+
+    fn local_object_key(&self, object_key: &str) -> Option<String> {
+        let prefix = normalize_prefix(&self.prefix);
+        if prefix.is_empty() {
+            return Some(object_key.to_owned());
+        }
+
+        object_key
+            .strip_prefix(&format!("{prefix}/"))
+            .map(str::to_owned)
     }
 
     async fn object_bytes(&self, client: &Client, key: &str) -> Result<Vec<u8>> {
@@ -153,7 +182,10 @@ impl S3ConnectionSettings {
         let mut continuation_token = None;
 
         loop {
-            let mut request = client.list_objects_v2().bucket(bucket).prefix("content/");
+            let mut request = client
+                .list_objects_v2()
+                .bucket(bucket)
+                .prefix(self.object_prefix("content/"));
             if let Some(token) = continuation_token {
                 request = request.continuation_token(token);
             }
@@ -167,11 +199,14 @@ impl S3ConnectionSettings {
                 let Some(key) = object.key() else {
                     continue;
                 };
+                let Some(key) = self.local_object_key(key) else {
+                    continue;
+                };
                 if key == "content/" || key.ends_with('/') {
                     continue;
                 }
-                validate_relative_content_path(key)?;
-                keys.push(key.to_owned());
+                validate_relative_content_path(&key)?;
+                keys.push(key);
             }
 
             continuation_token = response.next_continuation_token().map(str::to_owned);
@@ -188,10 +223,11 @@ impl S3ConnectionSettings {
         client: &Client,
         bucket: &str,
     ) -> Result<Option<BackupManifest>> {
+        let manifest_key = self.object_key(BACKUP_MANIFEST_KEY);
         let response = client
             .list_objects_v2()
             .bucket(bucket)
-            .prefix(BACKUP_MANIFEST_KEY)
+            .prefix(&manifest_key)
             .send()
             .await
             .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
@@ -199,12 +235,12 @@ impl S3ConnectionSettings {
         let manifest_exists = response
             .contents()
             .iter()
-            .any(|object| object.key() == Some(BACKUP_MANIFEST_KEY));
+            .any(|object| object.key() == Some(manifest_key.as_str()));
         if !manifest_exists {
             return Ok(None);
         }
 
-        let bytes = self.object_bytes(client, BACKUP_MANIFEST_KEY).await?;
+        let bytes = self.object_bytes(client, &manifest_key).await?;
         manifest_from_bytes(&bytes).map(Some)
     }
 
@@ -242,6 +278,16 @@ fn require_field(label: &str, value: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn normalize_prefix(prefix: &str) -> String {
+    prefix
+        .trim()
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -565,6 +611,27 @@ mod tests {
             validate_manifest_checksums(&manifest, &config_bytes, &content_objects).unwrap_err();
 
         assert!(error.to_string().contains("checksum mismatch"));
+    }
+
+    #[test]
+    fn s3_object_keys_are_scoped_by_normalized_workspace_prefix() {
+        let settings = S3ConnectionSettings {
+            prefix: " /projects/gimji-main// ".to_owned(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            settings.object_key("config.json"),
+            "projects/gimji-main/config.json"
+        );
+        assert_eq!(
+            settings.object_key("content/project.md"),
+            "projects/gimji-main/content/project.md"
+        );
+        assert_eq!(
+            settings.object_prefix("content/"),
+            "projects/gimji-main/content/"
+        );
     }
 
     fn config_bytes_for_content_file(file_name: &str) -> Vec<u8> {

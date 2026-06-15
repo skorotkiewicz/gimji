@@ -11,6 +11,7 @@ fn s3_connection_settings_reject_missing_endpoint() {
         endpoint_url: String::new(),
         region: "us-east-1".to_owned(),
         bucket: String::new(),
+        prefix: String::new(),
         access_key_id: "minioadmin".to_owned(),
         secret_access_key: "minioadmin".to_owned(),
     };
@@ -29,6 +30,7 @@ fn s3_connection_test_uses_s3_endpoint_when_no_bucket_is_selected() {
             .unwrap_or_else(|_| "http://192.168.0.125:9000".to_owned()),
         region: std::env::var("GIMJI_S3_REGION").unwrap_or_else(|_| "us-east-1".to_owned()),
         bucket: String::new(),
+        prefix: String::new(),
         access_key_id: std::env::var("GIMJI_S3_ACCESS_KEY")
             .unwrap_or_else(|_| "minioadmin".to_owned()),
         secret_access_key: std::env::var("GIMJI_S3_SECRET_KEY")
@@ -49,6 +51,7 @@ fn s3_backup_requires_bucket_name() {
         endpoint_url: "http://192.168.0.125:9000".to_owned(),
         region: "us-east-1".to_owned(),
         bucket: String::new(),
+        prefix: String::new(),
         access_key_id: "minioadmin".to_owned(),
         secret_access_key: "minioadmin".to_owned(),
     };
@@ -69,6 +72,7 @@ fn s3_restore_requires_bucket_name() {
         endpoint_url: "http://192.168.0.125:9000".to_owned(),
         region: "us-east-1".to_owned(),
         bucket: String::new(),
+        prefix: String::new(),
         access_key_id: "minioadmin".to_owned(),
         secret_access_key: "minioadmin".to_owned(),
     };
@@ -165,6 +169,7 @@ fn storage_bucket_settings() -> S3ConnectionSettings {
             .unwrap_or_else(|_| "http://192.168.0.125:9000".to_owned()),
         region: std::env::var("GIMJI_S3_REGION").unwrap_or_else(|_| "us-east-1".to_owned()),
         bucket: std::env::var("GIMJI_S3_BUCKET").unwrap_or_else(|_| "storage".to_owned()),
+        prefix: std::env::var("GIMJI_S3_PREFIX").unwrap_or_default(),
         access_key_id: std::env::var("GIMJI_S3_ACCESS_KEY")
             .unwrap_or_else(|_| "minioadmin".to_owned()),
         secret_access_key: std::env::var("GIMJI_S3_SECRET_KEY")

@@ -194,6 +194,12 @@ impl GimjiApp {
                 .margin(egui::Vec2::new(4.0, 4.0)),
         );
         ui.add(
+            egui::TextEdit::singleline(&mut self.s3_prefix)
+                .hint_text("Prefix")
+                .desired_width(f32::INFINITY)
+                .margin(egui::Vec2::new(4.0, 4.0)),
+        );
+        ui.add(
             egui::TextEdit::singleline(&mut self.s3_access_key_id)
                 .hint_text("Access key")
                 .desired_width(f32::INFINITY)

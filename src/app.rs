@@ -40,6 +40,8 @@ const ENV_S3_REGION: &str = "GIMJI_S3_REGION";
 #[cfg(feature = "s3")]
 const ENV_S3_BUCKET: &str = "GIMJI_S3_BUCKET";
 #[cfg(feature = "s3")]
+const ENV_S3_PREFIX: &str = "GIMJI_S3_PREFIX";
+#[cfg(feature = "s3")]
 const ENV_S3_ACCESS_KEY: &str = "GIMJI_S3_ACCESS_KEY";
 #[cfg(feature = "s3")]
 const ENV_S3_SECRET_KEY: &str = "GIMJI_S3_SECRET_KEY";
@@ -82,6 +84,8 @@ struct GimjiApp {
     #[cfg(feature = "s3")]
     s3_bucket: String,
     #[cfg(feature = "s3")]
+    s3_prefix: String,
+    #[cfg(feature = "s3")]
     s3_access_key_id: String,
     #[cfg(feature = "s3")]
     s3_secret_access_key: String,
@@ -121,6 +125,8 @@ impl GimjiApp {
             s3_region: initial_s3_settings.region,
             #[cfg(feature = "s3")]
             s3_bucket: initial_s3_settings.bucket,
+            #[cfg(feature = "s3")]
+            s3_prefix: initial_s3_settings.prefix,
             #[cfg(feature = "s3")]
             s3_access_key_id: initial_s3_settings.access_key_id,
             #[cfg(feature = "s3")]
@@ -378,6 +384,7 @@ impl GimjiApp {
             endpoint_url: self.s3_endpoint_url.trim().to_owned(),
             region: self.s3_region.trim().to_owned(),
             bucket: self.s3_bucket.trim().to_owned(),
+            prefix: self.s3_prefix.trim().to_owned(),
             access_key_id: self.s3_access_key_id.trim().to_owned(),
             secret_access_key: self.s3_secret_access_key.trim().to_owned(),
         }
@@ -786,6 +793,7 @@ fn initial_s3_connection_settings(
         endpoint_url: get_env(ENV_S3_ENDPOINT).unwrap_or_default(),
         region: get_env(ENV_S3_REGION).unwrap_or_else(|| DEFAULT_S3_REGION.to_owned()),
         bucket: get_env(ENV_S3_BUCKET).unwrap_or_default(),
+        prefix: get_env(ENV_S3_PREFIX).unwrap_or_default(),
         access_key_id: get_env(ENV_S3_ACCESS_KEY).unwrap_or_default(),
         secret_access_key: get_env(ENV_S3_SECRET_KEY).unwrap_or_default(),
     }
@@ -943,6 +951,8 @@ mod tests {
             #[cfg(feature = "s3")]
             s3_bucket: String::new(),
             #[cfg(feature = "s3")]
+            s3_prefix: String::new(),
+            #[cfg(feature = "s3")]
             s3_access_key_id: String::new(),
             #[cfg(feature = "s3")]
             s3_secret_access_key: String::new(),
@@ -1030,6 +1040,7 @@ mod tests {
         app.s3_endpoint_url = " http://192.168.0.125:9000 ".to_owned();
         app.s3_region = " us-east-1 ".to_owned();
         app.s3_bucket = " gimji ".to_owned();
+        app.s3_prefix = " projects/gimji-main ".to_owned();
         app.s3_access_key_id = " minioadmin ".to_owned();
         app.s3_secret_access_key = " minioadmin ".to_owned();
 
@@ -1038,6 +1049,7 @@ mod tests {
         assert_eq!(settings.endpoint_url, "http://192.168.0.125:9000");
         assert_eq!(settings.region, "us-east-1");
         assert_eq!(settings.bucket, "gimji");
+        assert_eq!(settings.prefix, "projects/gimji-main");
         assert_eq!(settings.access_key_id, "minioadmin");
         assert_eq!(settings.secret_access_key, "minioadmin");
     }
@@ -1049,6 +1061,7 @@ mod tests {
             "GIMJI_S3_ENDPOINT" => Some("http://192.168.0.125:9000".to_owned()),
             "GIMJI_S3_REGION" => Some("us-east-1".to_owned()),
             "GIMJI_S3_BUCKET" => Some("storage".to_owned()),
+            "GIMJI_S3_PREFIX" => Some("projects/gimji-main".to_owned()),
             "GIMJI_S3_ACCESS_KEY" => Some("minioadmin".to_owned()),
             "GIMJI_S3_SECRET_KEY" => Some("minioadmin".to_owned()),
             _ => None,
@@ -1057,6 +1070,7 @@ mod tests {
         assert_eq!(settings.endpoint_url, "http://192.168.0.125:9000");
         assert_eq!(settings.region, "us-east-1");
         assert_eq!(settings.bucket, "storage");
+        assert_eq!(settings.prefix, "projects/gimji-main");
         assert_eq!(settings.access_key_id, "minioadmin");
         assert_eq!(settings.secret_access_key, "minioadmin");
     }
