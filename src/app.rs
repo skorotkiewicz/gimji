@@ -840,7 +840,7 @@ fn render_status_strip(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::models::{TabContent, TabType};
+    use crate::models::{Tab, TabContent, TabType};
     use crate::storage::Workspace;
 
     use super::editors::{
@@ -1171,6 +1171,33 @@ mod tests {
 
         assert_eq!(size.x, KANBAN_CARD_TEXT_WIDTH);
         assert_eq!(size.y, KANBAN_CARD_TEXT_HEIGHT);
+    }
+
+    #[test]
+    fn tab_button_job_shows_title_only_and_type_color() {
+        let tab = Tab::new("Docs", TabType::Todo, "Docs.todo.json");
+        let job = super::tabs::tab_button_job(&tab);
+
+        assert_eq!(job.text, "Docs");
+        assert_eq!(job.sections.len(), 1);
+        assert_eq!(
+            job.sections[0].format.color,
+            super::tabs::tab_type_color(TabType::Todo)
+        );
+    }
+
+    #[test]
+    fn each_tab_type_has_distinct_tab_color() {
+        let colors: Vec<_> = TabType::ALL
+            .iter()
+            .map(|tab_type| super::tabs::tab_type_color(*tab_type))
+            .collect();
+
+        for (index, left) in colors.iter().enumerate() {
+            for right in colors.iter().skip(index + 1) {
+                assert_ne!(left, right);
+            }
+        }
     }
 
     #[test]

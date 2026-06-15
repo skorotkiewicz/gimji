@@ -1,8 +1,8 @@
 use eframe::egui;
 
-use crate::models::{Note, TabType};
+use crate::models::{Note, Tab, TabType};
 
-use super::{ACTIVE_BG, ConfirmAction, GimjiApp, TEXT_MUTED, panel_frame};
+use super::{ACTIVE_BG, ConfirmAction, GimjiApp, panel_frame};
 
 impl GimjiApp {
     pub(super) fn render_note_header(&mut self, ui: &mut egui::Ui, note: &Note) {
@@ -109,24 +109,7 @@ impl GimjiApp {
                                         }
                                     });
                                 } else {
-                                    let type_text = tab.tab_type.as_str();
-                                    let mut job = egui::text::LayoutJob::default();
-                                    job.append(
-                                        &tab.title,
-                                        0.0,
-                                        egui::TextFormat::simple(
-                                            egui::FontId::proportional(14.0),
-                                            egui::Color32::WHITE,
-                                        ),
-                                    );
-                                    job.append(
-                                        format!(" ({type_text})").as_str(),
-                                        0.0,
-                                        egui::TextFormat::simple(
-                                            egui::FontId::proportional(12.0),
-                                            TEXT_MUTED,
-                                        ),
-                                    );
+                                    let job = tab_button_job(tab);
                                     let mut response = ui.add(
                                         egui::Button::new(job)
                                             .selected(selected)
@@ -178,5 +161,27 @@ impl GimjiApp {
                         });
                     });
             });
+    }
+}
+
+pub(super) fn tab_button_job(tab: &Tab) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        &tab.title,
+        0.0,
+        egui::TextFormat::simple(
+            egui::FontId::proportional(14.0),
+            tab_type_color(tab.tab_type),
+        ),
+    );
+    job
+}
+
+pub(super) fn tab_type_color(tab_type: TabType) -> egui::Color32 {
+    match tab_type {
+        TabType::Markdown => egui::Color32::from_rgb(171, 209, 255),
+        TabType::Kanban => egui::Color32::from_rgb(184, 221, 156),
+        TabType::Todo => egui::Color32::from_rgb(245, 204, 112),
+        TabType::Calendar => egui::Color32::from_rgb(216, 180, 254),
     }
 }
