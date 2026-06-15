@@ -963,7 +963,10 @@ mod tests {
         app.add_tab(TabType::Kanban);
 
         let workspace = app.workspace.as_ref().expect("workspace");
-        let tab_id = workspace.selected_tab_id().expect("selected tab").to_owned();
+        let tab_id = workspace
+            .selected_tab_id()
+            .expect("selected tab")
+            .to_owned();
         let tab = workspace.find_tab(&tab_id).expect("tab");
         assert_eq!(tab.title, TabType::Kanban.label());
         assert!(app.renaming_tab);
