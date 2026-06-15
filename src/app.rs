@@ -846,7 +846,7 @@ mod tests {
     use super::editors::{
         KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
         kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
-        new_calendar_event, new_todo_item,
+        markdown_editor_desired_rows, new_calendar_event, new_todo_item,
     };
     use super::selection::{SelectedContent, selected_content_for_workspace};
     #[cfg(feature = "s3")]
@@ -865,6 +865,17 @@ mod tests {
         assert_eq!(column_size.y, 0.0);
         assert_eq!(card_size.x, KANBAN_CARD_TEXT_WIDTH);
         assert_eq!(card_size.y, KANBAN_CARD_TEXT_HEIGHT);
+    }
+
+    #[test]
+    fn markdown_editor_height_tracks_document_lines_for_outer_scrolling() {
+        let markdown = (1..=80)
+            .map(|index| format!("Line {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert_eq!(markdown_editor_desired_rows(&markdown), 80);
+        assert_eq!(markdown_editor_desired_rows("short note"), 24);
     }
 
     #[test]

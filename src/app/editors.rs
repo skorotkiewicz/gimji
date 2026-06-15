@@ -8,21 +8,35 @@ use super::{SURFACE_BG, TEXT_MUTED, panel_frame};
 pub(super) const KANBAN_COLUMN_WIDTH: f32 = 280.0;
 pub(super) const KANBAN_CARD_TEXT_WIDTH: f32 = 250.0;
 pub(super) const KANBAN_CARD_TEXT_HEIGHT: f32 = 76.0;
+const MARKDOWN_MIN_VISIBLE_ROWS: usize = 24;
 
 pub(super) fn render_markdown(ui: &mut egui::Ui, markdown: &mut String) -> bool {
     panel_frame(SURFACE_BG)
         .show(ui, |ui| {
-            ui.add_sized(
-                ui.available_size(),
-                egui::TextEdit::multiline(markdown)
-                    .font(egui::TextStyle::Monospace)
-                    .hint_text("Write markdown...")
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(24),
-            )
-            .changed()
+            egui::ScrollArea::vertical()
+                .id_salt("markdown-editor-scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let desired_rows = markdown_editor_desired_rows(markdown);
+                    let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+                    let editor_height = row_height * desired_rows as f32;
+                    ui.add_sized(
+                        egui::vec2(ui.available_width(), editor_height),
+                        egui::TextEdit::multiline(markdown)
+                            .font(egui::TextStyle::Monospace)
+                            .hint_text("Write markdown...")
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(desired_rows),
+                    )
+                    .changed()
+                })
+                .inner
         })
         .inner
+}
+
+pub(super) fn markdown_editor_desired_rows(markdown: &str) -> usize {
+    markdown.lines().count().max(MARKDOWN_MIN_VISIBLE_ROWS)
 }
 
 pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool {
