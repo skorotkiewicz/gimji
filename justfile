@@ -17,8 +17,7 @@ run *args:
 fmt:
     cargo fmt
     cargo clippy --all-targets --all-features -- -D warnings
-    # @command -v shear >/dev/null 2>&1 || cargo install shear
-    # cargo shear --fix
+    # cargo shear --fix # cargo install shear
 
 check:
     cargo fmt --check
