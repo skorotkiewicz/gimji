@@ -845,8 +845,9 @@ mod tests {
 
     use super::editors::{
         KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
-        kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
-        markdown_editor_desired_rows, new_calendar_event, new_todo_item,
+        MarkdownHighlightKind, kanban_card_text_area_size, kanban_column_area_size,
+        kanban_column_header_action_area_size, markdown_editor_desired_rows,
+        markdown_highlight_spans, new_calendar_event, new_todo_item,
     };
     use super::selection::{SelectedContent, selected_content_for_workspace};
     #[cfg(feature = "s3")]
@@ -876,6 +877,27 @@ mod tests {
 
         assert_eq!(markdown_editor_desired_rows(&markdown), 80);
         assert_eq!(markdown_editor_desired_rows("short note"), 24);
+    }
+
+    #[test]
+    fn markdown_highlighter_classifies_common_markdown_syntax() {
+        let markdown = "# Heading\n- item\n> quote\n`code` and [link](https://example.com)\n```rust\nlet x = 1;\n```\n";
+
+        let spans = markdown_highlight_spans(markdown);
+        let rebuilt = spans
+            .iter()
+            .map(|span| span.text.as_str())
+            .collect::<String>();
+        let kinds = spans.iter().map(|span| span.kind).collect::<Vec<_>>();
+
+        assert_eq!(rebuilt, markdown);
+        assert!(kinds.contains(&MarkdownHighlightKind::Heading));
+        assert!(kinds.contains(&MarkdownHighlightKind::ListMarker));
+        assert!(kinds.contains(&MarkdownHighlightKind::QuoteMarker));
+        assert!(kinds.contains(&MarkdownHighlightKind::InlineCode));
+        assert!(kinds.contains(&MarkdownHighlightKind::Link));
+        assert!(kinds.contains(&MarkdownHighlightKind::CodeFence));
+        assert!(kinds.contains(&MarkdownHighlightKind::CodeBlock));
     }
 
     #[test]
