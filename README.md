@@ -14,6 +14,16 @@ Open or create a workspace folder from the sidebar. Add notes, add tabs, and
 edit content directly. Gimji saves metadata in `config.json` and tab content in
 separate files under `content/`.
 
+## Arch Linux
+
+Gimji is available from the AUR as `gimji`.
+
+```bash
+paru -S gimji
+# or
+yay -S gimji
+```
+
 ## Build
 
 ```bash
