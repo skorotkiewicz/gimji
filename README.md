@@ -1,5 +1,10 @@
 # Gimji
 
+[![AUR package](https://img.shields.io/aur/version/gimji)](https://aur.archlinux.org/packages/gimji)
+[![GitHub release](https://img.shields.io/github/v/release/skorotkiewicz/gimji)](https://github.com/skorotkiewicz/gimji/releases)
+[![Release Gimji](https://github.com/skorotkiewicz/gimji/actions/workflows/release.yml/badge.svg)](https://github.com/skorotkiewicz/gimji/actions/workflows/release.yml)
+[![License](https://img.shields.io/github/license/skorotkiewicz/gimji)](https://github.com/skorotkiewicz/gimji)
+
 Minimal local-first notes for projects, tasks, boards, calendars, and markdown.
 Gimji stores everything in a folder you choose, so your workspace stays plain,
 portable, and easy to back up.
