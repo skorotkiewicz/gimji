@@ -1,5 +1,6 @@
 GIMJI_S3_ENDPOINT="http://192.168.0.125:9000"
 GIMJI_S3_REGION="us-east-1"
-GIMJI_S3_BUCKET="gimji"
+GIMJI_S3_BUCKET="storage"
+GIMJI_S3_PREFIX="gimji1"
 GIMJI_S3_ACCESS_KEY="minioadmin"
 GIMJI_S3_SECRET_KEY="minioadmin"
