@@ -268,10 +268,6 @@ impl GimjiApp {
         }
     }
 
-    fn save_note_title_edit(&mut self) {
-        self.rename_current_note();
-    }
-
     fn cancel_note_title_edit(&mut self) {
         self.editing_note_title = false;
         self.refresh_rename_buffers();
@@ -919,14 +915,6 @@ mod tests {
         assert_eq!(super::dialogs::confirm_button_label_for_delete(), "Delete");
     }
 
-    // #[test]
-    // fn command_module_defines_command_groups() {
-    //     assert_eq!(
-    //         super::commands::command_group_labels(),
-    //         ["Workspace", "Notes", "Tabs", "Rename", "Delete", "S3"]
-    //     );
-    // }
-
     fn app_with_workspace(workspace: Workspace) -> GimjiApp {
         GimjiApp {
             workspace: Some(workspace),
@@ -1259,7 +1247,7 @@ mod tests {
 
         app.editing_note_title = true;
         app.rename_note_title = "Renamed Note".to_owned();
-        app.save_note_title_edit();
+        app.rename_current_note();
         assert!(!app.editing_note_title);
         assert_eq!(
             app.workspace

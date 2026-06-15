@@ -12,14 +12,20 @@ impl GimjiApp {
                     [ui.available_width() - 80.0, 28.0],
                     egui::TextEdit::singleline(&mut self.rename_note_title),
                 );
-                let save_shortcut =
-                    response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-                let cancel_shortcut =
-                    response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Escape));
-                if cancel_shortcut {
+                let (enter, escape) = if response.has_focus() {
+                    ui.input(|i| {
+                        (
+                            i.key_pressed(egui::Key::Enter),
+                            i.key_pressed(egui::Key::Escape),
+                        )
+                    })
+                } else {
+                    (false, false)
+                };
+                if escape {
                     self.cancel_note_title_edit();
-                } else if save_shortcut || ui.button("Save").clicked() {
-                    self.save_note_title_edit();
+                } else if enter || ui.button("Save").clicked() {
+                    self.rename_current_note();
                 }
                 if ui.button("Cancel").clicked() {
                     self.cancel_note_title_edit();
@@ -76,23 +82,19 @@ impl GimjiApp {
                                                 .margin(egui::Vec2::new(4.0, 2.0)),
                                         );
 
-                                        let mut save = false;
-                                        let mut cancel = false;
+                                        let (enter, escape) = if response.has_focus() {
+                                            ui.input(|i| {
+                                                (
+                                                    i.key_pressed(egui::Key::Enter),
+                                                    i.key_pressed(egui::Key::Escape),
+                                                )
+                                            })
+                                        } else {
+                                            (false, false)
+                                        };
+                                        let mut save = enter || response.lost_focus();
+                                        let mut cancel = escape;
 
-                                        if response.has_focus()
-                                            && ui
-                                                .input(|input| input.key_pressed(egui::Key::Escape))
-                                        {
-                                            cancel = true;
-                                        }
-                                        if response.has_focus()
-                                            && ui.input(|input| input.key_pressed(egui::Key::Enter))
-                                        {
-                                            save = true;
-                                        }
-                                        if response.lost_focus() {
-                                            save = true;
-                                        }
                                         if ui.small_button("Save").clicked() {
                                             save = true;
                                         }
