@@ -46,7 +46,7 @@ You can pre-fill the S3 form with environment variables:
 export GIMJI_S3_BUCKET=storage
 export GIMJI_S3_REGION=us-east-1
 export GIMJI_S3_ENDPOINT=http://127.0.0.1:9000
-export GIMJI_S3_PREFIX="gimji1"
+export GIMJI_S3_PREFIX=gimji1
 export GIMJI_S3_ACCESS_KEY=minioadmin
 export GIMJI_S3_SECRET_KEY=minioadmin
 ```
@@ -54,7 +54,7 @@ export GIMJI_S3_SECRET_KEY=minioadmin
 Open the S3 section in the sidebar, test the connection, then use `Backup` or
 `Restore`.
 
-`GIMJI_S3_PREFIX` use a different prefix, such as `gimji1`, `gimji2`, or a project name, to keep multiple Gimji workspaces separate while sharing one S3 bucket.
+Optional in `GIMJI_S3_PREFIX` use a different prefix, such as `gimji1`, `gimji2`, or a project name, to keep multiple Gimji workspaces separate while sharing one S3 bucket.
 
 ## Verify
 
