@@ -12,7 +12,7 @@ build-all:
     cargo build --release --all-features
 
 run *args:
-    cargo run -- {{ args }}
+    cargo run --all-features -- {{ args }}
 
 fmt:
     cargo fmt
