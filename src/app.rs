@@ -1,24 +1,23 @@
 #[cfg(feature = "s3")]
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use directories::ProjectDirs;
 use eframe::egui;
-use serde::{Deserialize, Serialize};
 
 use crate::models::{TabContent, TabType};
 #[cfg(feature = "s3")]
 use crate::storage::S3ConnectionSettings;
-use crate::storage::atomic::atomic_write;
 use crate::storage::{DeleteOptions, Workspace};
 
 mod dialogs;
 mod editors;
+mod recent;
 mod selection;
 mod sidebar;
 mod tabs;
+
+use recent::{RecentWorkspaces, RecentWorkspacesStore, recent_workspaces_path};
 
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(700);
 const APP_BG: egui::Color32 = egui::Color32::from_rgb(18, 19, 21);
@@ -107,7 +106,7 @@ impl GimjiApp {
         Self {
             workspace: None,
             loaded: None,
-            recent: RecentWorkspaces::load(),
+            recent: load_recent_workspaces(),
             note_filter: String::new(),
             new_note_title: "New Note".to_owned(),
             new_tab_title: String::new(),
@@ -161,6 +160,7 @@ impl GimjiApp {
                 self.workspace = Some(workspace);
                 self.loaded = None;
                 self.recent.add(path);
+                self.save_recent_workspaces();
                 self.load_selected_content();
             }
             Err(error) => self.set_error(error.to_string()),
@@ -176,6 +176,7 @@ impl GimjiApp {
                 self.workspace = Some(workspace);
                 self.loaded = None;
                 self.recent.add(path);
+                self.save_recent_workspaces();
                 self.load_selected_content();
             }
             Err(error) => self.set_error(error.to_string()),
@@ -183,7 +184,15 @@ impl GimjiApp {
     }
 
     fn remove_recent_workspace(&mut self, path: &Path) {
-        self.recent.remove(path);
+        if self.recent.remove(path) {
+            self.save_recent_workspaces();
+        }
+    }
+
+    fn save_recent_workspaces(&self) {
+        if let Some(path) = recent_workspaces_path() {
+            RecentWorkspacesStore::save(&path, &self.recent);
+        }
     }
 
     fn add_note(&mut self) {
@@ -568,7 +577,7 @@ impl eframe::App for GimjiApp {
 
     fn on_exit(&mut self) {
         self.flush_current();
-        self.recent.save();
+        self.save_recent_workspaces();
     }
 }
 
@@ -710,55 +719,11 @@ enum ConfirmAction {
     RestoreWorkspaceFromS3,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct RecentWorkspaces {
-    paths: Vec<PathBuf>,
-}
-
-impl RecentWorkspaces {
-    fn load() -> Self {
-        let Some(path) = recent_workspaces_path() else {
-            return Self::default();
-        };
-        let Ok(text) = fs::read_to_string(path) else {
-            return Self::default();
-        };
-        serde_json::from_str(&text).unwrap_or_default()
-    }
-
-    fn add(&mut self, path: PathBuf) {
-        self.paths.retain(|recent| recent != &path);
-        self.paths.insert(0, path);
-        self.paths.truncate(8);
-        self.save();
-    }
-
-    fn remove(&mut self, path: &Path) {
-        let original_len = self.paths.len();
-        self.paths.retain(|recent| recent != path);
-        if self.paths.len() != original_len {
-            self.save();
-        }
-    }
-
-    fn save(&self) {
-        let Some(path) = recent_workspaces_path() else {
-            return;
-        };
-        if let Some(parent) = path.parent()
-            && fs::create_dir_all(parent).is_err()
-        {
-            return;
-        }
-        if let Ok(bytes) = serde_json::to_vec_pretty(self) {
-            let _ = atomic_write(&path, &bytes);
-        }
-    }
-}
-
-fn recent_workspaces_path() -> Option<PathBuf> {
-    ProjectDirs::from("dev", "mod", "Gimji")
-        .map(|project_dirs| project_dirs.config_dir().join("recent_workspaces.json"))
+fn load_recent_workspaces() -> RecentWorkspaces {
+    recent_workspaces_path()
+        .as_deref()
+        .map(RecentWorkspacesStore::load)
+        .unwrap_or_default()
 }
 
 fn configure_theme(context: &egui::Context) {
@@ -879,7 +844,7 @@ mod tests {
     #[cfg(feature = "s3")]
     use super::{ConfirmAction, S3ConnectionStatus, initial_s3_connection_settings};
     use super::{
-        GimjiApp, NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, SaveStatus,
+        GimjiApp, NOTE_HEADER_ACTION_HEIGHT, RecentWorkspaces, RecentWorkspacesStore, SaveStatus,
         note_header_action_area_size,
     };
 
@@ -1009,6 +974,23 @@ mod tests {
         recent.remove(&first);
 
         assert_eq!(recent.paths, vec![second]);
+    }
+
+    #[test]
+    fn recent_workspace_store_round_trips_through_explicit_path() {
+        let temp_dir = tempfile::tempdir().expect("temporary config dir");
+        let store_path = temp_dir.path().join("config/recent_workspaces.json");
+        let recent = RecentWorkspaces {
+            paths: vec![
+                PathBuf::from("/tmp/gimji-first"),
+                PathBuf::from("/tmp/gimji-second"),
+            ],
+        };
+
+        RecentWorkspacesStore::save(&store_path, &recent);
+        let loaded = RecentWorkspacesStore::load(&store_path);
+
+        assert_eq!(loaded.paths, recent.paths);
     }
 
     #[test]
