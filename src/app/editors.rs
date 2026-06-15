@@ -170,13 +170,15 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
 pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
     let mut dirty = false;
     let mut delete_index = None;
+    let mut focus_new_item = false;
 
     panel_frame(SURFACE_BG).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.heading("Tasks");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("+ Todo").clicked() {
-                    todo.items.push(TodoItem::new("New todo"));
+                    todo.items.push(new_todo_item());
+                    focus_new_item = true;
                     dirty = true;
                 }
             });
@@ -187,6 +189,7 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
             ui.label(egui::RichText::new("No tasks").color(TEXT_MUTED));
         }
 
+        let focus_index = focus_new_item.then(|| todo.items.len().saturating_sub(1));
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (index, item) in todo.items.iter_mut().enumerate() {
                 egui::Frame::new()
@@ -199,13 +202,14 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
                                 item.touch();
                                 dirty = true;
                             }
-                            if ui
-                                .add_sized(
-                                    [ui.available_width() - 50.0, 28.0],
-                                    egui::TextEdit::singleline(&mut item.text),
-                                )
-                                .changed()
-                            {
+                            let response = ui.add_sized(
+                                [ui.available_width() - 50.0, 28.0],
+                                egui::TextEdit::singleline(&mut item.text).hint_text("Todo"),
+                            );
+                            if focus_index == Some(index) {
+                                response.request_focus();
+                            }
+                            if response.changed() {
                                 item.touch();
                                 dirty = true;
                             }
@@ -234,6 +238,7 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
 pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) -> bool {
     let mut dirty = false;
     let mut delete_index = None;
+    let mut focus_new_event = false;
 
     calendar.events.sort_by(|left, right| {
         left.date
@@ -246,11 +251,10 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
             ui.heading("Calendar");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("+ Event").clicked() {
-                    calendar.events.push(CalendarEvent::new(
+                    calendar.events.push(new_calendar_event(
                         Local::now().format("%Y-%m-%d").to_string(),
-                        "New event",
-                        "",
                     ));
+                    focus_new_event = true;
                     dirty = true;
                 }
             });
@@ -261,6 +265,7 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
             ui.label(egui::RichText::new("No events").color(TEXT_MUTED));
         }
 
+        let focus_index = focus_new_event.then(|| calendar.events.len().saturating_sub(1));
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (index, event) in calendar.events.iter_mut().enumerate() {
                 egui::Frame::new()
@@ -281,13 +286,15 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
                                 dirty = true;
                             }
                             ui.label(egui::RichText::new("Title").small().color(TEXT_MUTED));
-                            if ui
-                                .add_sized(
-                                    [ui.available_width() - 50.0, 28.0],
-                                    egui::TextEdit::singleline(&mut event.title),
-                                )
-                                .changed()
-                            {
+                            let response = ui.add_sized(
+                                [ui.available_width() - 50.0, 28.0],
+                                egui::TextEdit::singleline(&mut event.title)
+                                    .hint_text("Event title"),
+                            );
+                            if focus_index == Some(index) {
+                                response.request_focus();
+                            }
+                            if response.changed() {
                                 event.touch();
                                 dirty = true;
                             }
@@ -323,6 +330,14 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
     }
 
     dirty
+}
+
+pub(super) fn new_todo_item() -> TodoItem {
+    TodoItem::new("")
+}
+
+pub(super) fn new_calendar_event(date: String) -> CalendarEvent {
+    CalendarEvent::new(date, "", "")
 }
 
 #[cfg(test)]

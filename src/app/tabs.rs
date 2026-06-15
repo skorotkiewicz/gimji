@@ -8,16 +8,21 @@ impl GimjiApp {
     pub(super) fn render_note_header(&mut self, ui: &mut egui::Ui, note: &Note) {
         ui.horizontal(|ui| {
             if self.editing_note_title {
-                ui.add_sized(
+                let response = ui.add_sized(
                     [ui.available_width() - 80.0, 28.0],
                     egui::TextEdit::singleline(&mut self.rename_note_title),
                 );
-                if ui.button("Save").clicked() {
-                    self.rename_current_note();
+                let save_shortcut =
+                    response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                let cancel_shortcut =
+                    response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Escape));
+                if cancel_shortcut {
+                    self.cancel_note_title_edit();
+                } else if save_shortcut || ui.button("Save").clicked() {
+                    self.save_note_title_edit();
                 }
                 if ui.button("Cancel").clicked() {
-                    self.editing_note_title = false;
-                    self.refresh_rename_buffers();
+                    self.cancel_note_title_edit();
                 }
             } else {
                 ui.heading(&note.title);
@@ -74,6 +79,17 @@ impl GimjiApp {
                                         let mut save = false;
                                         let mut cancel = false;
 
+                                        if response.has_focus()
+                                            && ui
+                                                .input(|input| input.key_pressed(egui::Key::Escape))
+                                        {
+                                            cancel = true;
+                                        }
+                                        if response.has_focus()
+                                            && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                                        {
+                                            save = true;
+                                        }
                                         if response.lost_focus() {
                                             save = true;
                                         }
@@ -85,13 +101,9 @@ impl GimjiApp {
                                         }
 
                                         if cancel {
-                                            self.renaming_tab = false;
-                                            self.rename_tab_id = None;
-                                            self.refresh_rename_buffers();
+                                            self.cancel_tab_title_edit();
                                         } else if save {
-                                            self.rename_current_tab();
-                                            self.renaming_tab = false;
-                                            self.rename_tab_id = None;
+                                            self.save_tab_title_edit();
                                         }
                                     });
                                 } else {

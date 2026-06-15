@@ -268,6 +268,15 @@ impl GimjiApp {
         }
     }
 
+    fn save_note_title_edit(&mut self) {
+        self.rename_current_note();
+    }
+
+    fn cancel_note_title_edit(&mut self) {
+        self.editing_note_title = false;
+        self.refresh_rename_buffers();
+    }
+
     fn rename_current_tab(&mut self) {
         let title = self.rename_tab_title.trim().to_owned();
         if title.is_empty() {
@@ -287,6 +296,22 @@ impl GimjiApp {
         {
             self.set_error(error.to_string());
         }
+    }
+
+    fn save_tab_title_edit(&mut self) {
+        if self.rename_tab_title.trim().is_empty() {
+            return;
+        }
+
+        self.rename_current_tab();
+        self.renaming_tab = false;
+        self.rename_tab_id = None;
+    }
+
+    fn cancel_tab_title_edit(&mut self) {
+        self.renaming_tab = false;
+        self.rename_tab_id = None;
+        self.refresh_rename_buffers();
     }
 
     fn refresh_rename_buffers(&mut self) {
@@ -839,6 +864,7 @@ mod tests {
     use super::editors::{
         KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
         kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
+        new_calendar_event, new_todo_item,
     };
     use super::selection::{SelectedContent, selected_content_for_workspace};
     #[cfg(feature = "s3")]
@@ -892,6 +918,14 @@ mod tests {
     fn dialog_module_defines_confirm_button_labels() {
         assert_eq!(super::dialogs::confirm_button_label_for_delete(), "Delete");
     }
+
+    // #[test]
+    // fn command_module_defines_command_groups() {
+    //     assert_eq!(
+    //         super::commands::command_group_labels(),
+    //         ["Workspace", "Notes", "Tabs", "Rename", "Delete", "S3"]
+    //     );
+    // }
 
     fn app_with_workspace(workspace: Workspace) -> GimjiApp {
         GimjiApp {
@@ -991,6 +1025,18 @@ mod tests {
         let loaded = RecentWorkspacesStore::load(&store_path);
 
         assert_eq!(loaded.paths, recent.paths);
+    }
+
+    #[test]
+    fn editor_add_actions_create_blank_todo_and_event_fields() {
+        let todo = new_todo_item();
+        let event = new_calendar_event("2026-06-15".to_owned());
+
+        assert_eq!(todo.text, "");
+        assert!(!todo.done);
+        assert_eq!(event.date, "2026-06-15");
+        assert_eq!(event.title, "");
+        assert_eq!(event.description, "");
     }
 
     #[test]
@@ -1181,5 +1227,83 @@ mod tests {
         let selected = workspace.find_tab(&second_tab_id).expect("selected tab");
         assert_eq!(renamed.title, "Renamed From Menu");
         assert_eq!(selected.title, "Second");
+    }
+
+    #[test]
+    fn rename_edit_actions_save_or_cancel_note_and_tab_edits() {
+        let temp_dir = tempfile::tempdir().expect("temporary workspace");
+        let mut workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let note_id = workspace.add_note("Project").expect("note");
+        let tab_id = workspace
+            .selected_tab_id()
+            .expect("selected tab")
+            .to_owned();
+        let mut app = app_with_workspace(workspace);
+
+        app.editing_note_title = true;
+        app.rename_note_title = "Draft Note".to_owned();
+        app.cancel_note_title_edit();
+        assert!(!app.editing_note_title);
+        assert_eq!(
+            app.workspace
+                .as_ref()
+                .expect("workspace")
+                .config()
+                .notes
+                .iter()
+                .find(|note| note.id == note_id)
+                .expect("note")
+                .title,
+            "Project"
+        );
+
+        app.editing_note_title = true;
+        app.rename_note_title = "Renamed Note".to_owned();
+        app.save_note_title_edit();
+        assert!(!app.editing_note_title);
+        assert_eq!(
+            app.workspace
+                .as_ref()
+                .expect("workspace")
+                .config()
+                .notes
+                .iter()
+                .find(|note| note.id == note_id)
+                .expect("note")
+                .title,
+            "Renamed Note"
+        );
+
+        app.renaming_tab = true;
+        app.rename_tab_id = Some(tab_id.clone());
+        app.rename_tab_title = "Draft Tab".to_owned();
+        app.cancel_tab_title_edit();
+        assert!(!app.renaming_tab);
+        assert_eq!(app.rename_tab_id, None);
+        assert_eq!(
+            app.workspace
+                .as_ref()
+                .expect("workspace")
+                .find_tab(&tab_id)
+                .expect("tab")
+                .title,
+            "Markdown"
+        );
+
+        app.renaming_tab = true;
+        app.rename_tab_id = Some(tab_id.clone());
+        app.rename_tab_title = "Renamed Tab".to_owned();
+        app.save_tab_title_edit();
+        assert!(!app.renaming_tab);
+        assert_eq!(app.rename_tab_id, None);
+        assert_eq!(
+            app.workspace
+                .as_ref()
+                .expect("workspace")
+                .find_tab(&tab_id)
+                .expect("tab")
+                .title,
+            "Renamed Tab"
+        );
     }
 }
