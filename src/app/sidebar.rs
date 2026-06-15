@@ -18,8 +18,7 @@ impl GimjiApp {
             .show_inside(root_ui, |ui| {
                 ui.vertical(|ui| {
                     ui.heading("Gimji");
-                    ui.label(egui::RichText::new("Workspace").small().color(TEXT_MUTED));
-                    ui.add_space(10.0);
+                    ui.add_space(14.0);
 
                     ui.horizontal(|ui| {
                         let width = (ui.available_width() - 6.0) / 2.0;
@@ -39,17 +38,14 @@ impl GimjiApp {
 
                     #[cfg(feature = "s3")]
                     {
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(8.0);
+                        ui.add_space(14.0);
                         self.render_s3_section(ui);
                     }
 
                     if !self.recent.paths.is_empty() {
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(8.0);
+                        ui.add_space(14.0);
                         section_label(ui, "Recent");
+                        ui.add_space(4.0);
                         for path in self.recent.paths.clone() {
                             let label = path.display().to_string();
                             let response = ui
@@ -75,30 +71,35 @@ impl GimjiApp {
                         }
                     }
 
-                    ui.add_space(12.0);
                     ui.separator();
-                    ui.add_space(8.0);
 
                     if ui
                         .add_sized(
                             [ui.available_width(), 28.0],
-                            egui::Button::new("Quit").small(),
+                            egui::Button::new("Quit")
+                                .small()
+                                .fill(egui::Color32::TRANSPARENT),
                         )
                         .clicked()
                     {
                         ui.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
 
+
+                    ui.add_space(14.0);
+
                     section_label(ui, "Notes");
                     ui.horizontal(|ui| {
                         let add_width = 34.0;
                         ui.add_sized(
-                            [ui.available_width() - add_width - 6.0, 26.0],
+                            [ui.available_width() - add_width - 6.0, 28.0],
                             egui::TextEdit::singleline(&mut self.new_note_title)
-                                .hint_text("New note title"),
+                                .hint_text("New note")
+                                .desired_width(f32::INFINITY)
+                                .margin(egui::Vec2::new(4.0, 4.0)),
                         );
                         if ui
-                            .add_sized([add_width, 26.0], egui::Button::new("+").small())
+                            .add_sized([add_width, 28.0], egui::Button::new("+").small())
                             .clicked()
                         {
                             self.add_note();
@@ -107,7 +108,7 @@ impl GimjiApp {
 
                     ui.add(
                         egui::TextEdit::singleline(&mut self.note_filter)
-                            .hint_text("Filter")
+                            .hint_text("Filter notes")
                             .desired_width(f32::INFINITY)
                             .margin(egui::Vec2::new(4.0, 4.0)),
                     );
@@ -146,7 +147,7 @@ impl GimjiApp {
                                 };
                                 if ui
                                     .add_sized(
-                                        [ui.available_width(), 30.0],
+                                        [ui.available_width(), 28.0],
                                         egui::Button::new(egui::RichText::new(title).size(14.0))
                                             .fill(bg)
                                             .frame(false)
