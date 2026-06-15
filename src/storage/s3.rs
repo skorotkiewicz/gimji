@@ -7,6 +7,7 @@ use crate::errors::AppError;
 
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
+use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::primitives::ByteStream;
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +19,20 @@ use crate::storage::validate_relative_content_path;
 
 const BACKUP_MANIFEST_KEY: &str = ".gimji/backup-manifest.json";
 const BACKUP_MANIFEST_VERSION: u32 = 1;
+
+fn s3_service_error<E>(operation: &str, key: &str, source: &E) -> AppError
+where
+    E: ProvideErrorMetadata + std::fmt::Display,
+{
+    let detail = match (source.code(), source.message()) {
+        (Some(code), Some(message)) => format!("{code}: {message}"),
+        (Some(code), None) => code.to_owned(),
+        (None, Some(message)) => message.to_owned(),
+        (None, None) => source.to_string(),
+    };
+
+    AppError::S3ConnectionFailed(format!("{operation} failed for '{key}': {detail}"))
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct S3ConnectionSettings {
@@ -48,14 +63,14 @@ impl S3ConnectionSettings {
                 .list_buckets()
                 .send()
                 .await
-                .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
+                .map_err(|source| s3_service_error("ListBuckets", "<buckets>", &source))?;
         } else {
             client
                 .head_bucket()
                 .bucket(bucket)
                 .send()
                 .await
-                .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
+                .map_err(|source| s3_service_error("HeadBucket", bucket, &source))?;
         }
 
         Ok(())
@@ -69,27 +84,29 @@ impl S3ConnectionSettings {
         let files = workspace_backup_files(workspace.root())?;
         for file in &files {
             let bytes = fs::read(&file.path).map_err(|source| AppError::io(&file.path, source))?;
+            let key = self.object_key(&file.key);
             client
                 .put_object()
                 .bucket(bucket)
-                .key(self.object_key(&file.key))
+                .key(&key)
                 .body(ByteStream::from(bytes))
                 .send()
                 .await
-                .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
+                .map_err(|source| s3_service_error("PutObject", &key, &source))?;
         }
 
         let manifest = backup_manifest_for_files(&files)?;
         let manifest_bytes = serde_json::to_vec_pretty(&manifest)
             .map_err(|source| AppError::json(BACKUP_MANIFEST_KEY, source))?;
+        let key = self.object_key(BACKUP_MANIFEST_KEY);
         client
             .put_object()
             .bucket(bucket)
-            .key(self.object_key(BACKUP_MANIFEST_KEY))
+            .key(&key)
             .body(ByteStream::from(manifest_bytes))
             .send()
             .await
-            .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
+            .map_err(|source| s3_service_error("PutObject", &key, &source))?;
 
         Ok(())
     }
@@ -264,6 +281,10 @@ impl S3ConnectionSettings {
             .endpoint_url(self.endpoint_url.trim())
             .force_path_style(true)
             .region(Region::new(self.region.trim().to_owned()))
+            // S3-compatible services such as MinIO can reject optional checksum headers.
+            .request_checksum_calculation(
+                aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
+            )
             .build();
 
         Client::from_conf(config)

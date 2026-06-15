@@ -85,7 +85,6 @@ impl GimjiApp {
                         ui.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
 
-
                     ui.add_space(14.0);
 
                     section_label(ui, "Notes");
