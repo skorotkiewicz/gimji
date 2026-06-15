@@ -79,6 +79,16 @@ impl GimjiApp {
                     ui.separator();
                     ui.add_space(8.0);
 
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 28.0],
+                            egui::Button::new("Quit").small(),
+                        )
+                        .clicked()
+                    {
+                        ui.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+
                     section_label(ui, "Notes");
                     ui.horizontal(|ui| {
                         let add_width = 34.0;
