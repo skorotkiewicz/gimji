@@ -163,50 +163,20 @@ impl GimjiApp {
                                     }
                                 }
                             }
+
+                            ui.menu_button("+", |ui| {
+                                ui.set_min_width(120.0);
+                                for tab_type in TabType::ALL {
+                                    if ui.button(tab_type.label()).clicked() {
+                                        self.add_tab(tab_type);
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text("Add tab");
                         });
                     });
             });
     }
-
-    pub(super) fn render_tab_toolbar(&mut self, ui: &mut egui::Ui) {
-        panel_frame(egui::Color32::from_rgb(25, 27, 30))
-            .inner_margin(egui::Margin::symmetric(12, 8))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("New:").small().color(TEXT_MUTED));
-
-                    egui::ComboBox::from_id_salt("new-tab-type")
-                        .width(100.0)
-                        .selected_text(self.new_tab_type.label())
-                        .show_ui(ui, |ui| {
-                            for tab_type in TabType::ALL {
-                                ui.selectable_value(
-                                    &mut self.new_tab_type,
-                                    tab_type,
-                                    tab_type.label(),
-                                );
-                            }
-                        });
-
-                    ui.add_sized(
-                        [160.0, 24.0],
-                        egui::TextEdit::singleline(&mut self.new_tab_title)
-                            .hint_text("Title")
-                            .margin(egui::Vec2::new(4.0, 2.0)),
-                    );
-
-                    if ui
-                        .add_sized([40.0, 24.0], egui::Button::new("Add").small())
-                        .clicked()
-                    {
-                        self.add_tab();
-                    }
-                });
-            });
-    }
-}
-
-#[cfg(test)]
-pub(super) fn tab_action_section_titles() -> [&'static str; 1] {
-    ["Create Tab"]
 }

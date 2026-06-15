@@ -67,8 +67,6 @@ struct GimjiApp {
     recent: RecentWorkspaces,
     note_filter: String,
     new_note_title: String,
-    new_tab_title: String,
-    new_tab_type: TabType,
     rename_note_title: String,
     rename_tab_title: String,
     renaming_tab: bool,
@@ -109,8 +107,6 @@ impl GimjiApp {
             recent: load_recent_workspaces(),
             note_filter: String::new(),
             new_note_title: "New Note".to_owned(),
-            new_tab_title: String::new(),
-            new_tab_type: TabType::Markdown,
             rename_note_title: String::new(),
             rename_tab_title: String::new(),
             renaming_tab: false,
@@ -214,12 +210,7 @@ impl GimjiApp {
         }
     }
 
-    fn add_tab(&mut self) {
-        let title = self.new_tab_title.trim().to_owned();
-        if title.is_empty() {
-            return;
-        }
-
+    fn add_tab(&mut self, tab_type: TabType) {
         let Some(note_id) = self
             .workspace
             .as_ref()
@@ -231,13 +222,13 @@ impl GimjiApp {
 
         self.flush_current();
         if let Some(workspace) = &mut self.workspace {
-            match workspace.add_tab(&note_id, &title, self.new_tab_type) {
-                Ok(_) => {
-                    self.renaming_tab = false;
-                    self.rename_tab_id = None;
-                    self.new_tab_title.clear();
+            match workspace.add_tab(&note_id, tab_type.label(), tab_type) {
+                Ok(tab_id) => {
                     self.loaded = None;
                     self.load_selected_content();
+                    self.renaming_tab = true;
+                    self.rename_tab_id = Some(tab_id);
+                    self.refresh_rename_buffers();
                 }
                 Err(error) => self.set_error(error.to_string()),
             }
@@ -351,7 +342,7 @@ impl GimjiApp {
         }
 
         if context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::T)) {
-            self.add_tab();
+            self.add_tab(TabType::Markdown);
         }
     }
 
@@ -630,17 +621,12 @@ impl GimjiApp {
 
                 ui.add_space(8.0);
 
-                // 2. Tab Row
+                // 2. Tab Row (with inline "+" to add tabs)
                 self.render_tab_row(ui, &note);
-
-                ui.add_space(4.0);
-
-                // 3. Tab Toolbar
-                self.render_tab_toolbar(ui);
 
                 ui.add_space(8.0);
 
-                // 4. Status Strip
+                // 3. Status Strip
                 render_status_strip(
                     ui,
                     &workspace_path,
@@ -650,7 +636,7 @@ impl GimjiApp {
 
                 ui.add_space(8.0);
 
-                // 5. Content Area
+                // 4. Content Area
                 if selected_tab.is_none() {
                     render_empty_state(
                         ui,
@@ -922,8 +908,6 @@ mod tests {
             recent: RecentWorkspaces::default(),
             note_filter: String::new(),
             new_note_title: "New Note".to_owned(),
-            new_tab_title: String::new(),
-            new_tab_type: TabType::Markdown,
             rename_note_title: String::new(),
             rename_tab_title: String::new(),
             renaming_tab: false,
@@ -970,19 +954,21 @@ mod tests {
     }
 
     #[test]
-    fn new_tab_title_starts_empty_and_stays_empty_after_adding_tab() {
+    fn add_tab_creates_default_named_tab_and_enters_inline_rename() {
         let temp_dir = tempfile::tempdir().expect("temp workspace");
         let mut workspace = Workspace::create(temp_dir.path()).expect("workspace");
         workspace.add_note("Project").expect("note");
         let mut app = app_with_workspace(workspace);
 
-        assert_eq!(app.new_tab_title, "");
+        app.add_tab(TabType::Kanban);
 
-        app.new_tab_title = "Board".to_owned();
-        app.new_tab_type = TabType::Kanban;
-        app.add_tab();
-
-        assert_eq!(app.new_tab_title, "");
+        let workspace = app.workspace.as_ref().expect("workspace");
+        let tab_id = workspace.selected_tab_id().expect("selected tab").to_owned();
+        let tab = workspace.find_tab(&tab_id).expect("tab");
+        assert_eq!(tab.title, TabType::Kanban.label());
+        assert!(app.renaming_tab);
+        assert_eq!(app.rename_tab_id.as_deref(), Some(tab_id.as_str()));
+        assert_eq!(app.rename_tab_title, TabType::Kanban.label());
     }
 
     #[test]
@@ -1182,13 +1168,6 @@ mod tests {
 
         assert_eq!(size.x, KANBAN_CARD_TEXT_WIDTH);
         assert_eq!(size.y, KANBAN_CARD_TEXT_HEIGHT);
-    }
-
-    #[test]
-    fn tab_toolbar_only_contains_create_tab_actions() {
-        let sections = super::tabs::tab_action_section_titles();
-
-        assert_eq!(&sections[..], ["Create Tab"]);
     }
 
     #[test]
