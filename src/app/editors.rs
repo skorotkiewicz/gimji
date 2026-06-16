@@ -3,7 +3,7 @@ use eframe::egui;
 
 use crate::models::{CalendarData, CalendarEvent, KanbanBoard, KanbanCard, TodoItem, TodoList};
 
-use super::{SURFACE_BG, TEXT_MUTED, panel_frame};
+use super::{STROKE, SURFACE_BG, SURFACE_LOW, TEXT_MUTED, panel_frame};
 
 pub(super) const KANBAN_COLUMN_WIDTH: f32 = 280.0;
 pub(super) const KANBAN_CARD_TEXT_WIDTH: f32 = 250.0;
@@ -11,7 +11,7 @@ pub(super) const KANBAN_CARD_TEXT_HEIGHT: f32 = 76.0;
 const MARKDOWN_MIN_VISIBLE_ROWS: usize = 24;
 
 pub(super) fn render_markdown(ui: &mut egui::Ui, markdown: &mut String) -> bool {
-    panel_frame(SURFACE_BG)
+    panel_frame(SURFACE_LOW)
         .show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .id_salt("markdown-editor-scroll")
@@ -43,7 +43,7 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
     let mut dirty = false;
     let mut action = None;
 
-    panel_frame(SURFACE_BG).show(ui, |ui| {
+    panel_frame(SURFACE_LOW).show(ui, |ui| {
         egui::ScrollArea::new(kanban_scroll_axes()).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 for column_index in 0..board.columns.len() {
@@ -52,13 +52,18 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             egui::Frame::new()
-                                .fill(egui::Color32::from_rgb(25, 28, 32))
+                                .fill(SURFACE_BG)
                                 .inner_margin(egui::Margin::same(10))
                                 .corner_radius(6)
+                                .stroke(egui::Stroke::new(1.0, STROKE))
                                 .show(ui, |ui| {
                                     ui.set_width(KANBAN_COLUMN_WIDTH);
                                     ui.horizontal(|ui| {
-                                        ui.heading(&board.columns[column_index].title);
+                                        ui.label(
+                                            egui::RichText::new(&board.columns[column_index].title)
+                                                .size(16.0)
+                                                .strong(),
+                                        );
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
@@ -86,9 +91,10 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
                                     for card_index in 0..card_count {
                                         ui.add_space(8.0);
                                         egui::Frame::new()
-                                            .fill(SURFACE_BG)
+                                            .fill(SURFACE_LOW)
                                             .inner_margin(egui::Margin::same(8))
                                             .corner_radius(4)
+                                            .stroke(egui::Stroke::new(1.0, STROKE))
                                             .show(ui, |ui| {
                                                 ui.set_width(KANBAN_CARD_TEXT_WIDTH);
                                                 let card = &mut board.columns[column_index].cards
@@ -186,11 +192,14 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
     let mut delete_index = None;
     let mut focus_new_item = false;
 
-    panel_frame(SURFACE_BG).show(ui, |ui| {
+    panel_frame(SURFACE_LOW).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.heading("Tasks");
+            ui.label(egui::RichText::new("Tasks").size(16.0).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("+ Todo").clicked() {
+                if ui
+                    .add(egui::Button::new("+ Todo").small().corner_radius(6))
+                    .clicked()
+                {
                     todo.items.push(new_todo_item());
                     focus_new_item = true;
                     dirty = true;
@@ -207,9 +216,10 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (index, item) in todo.items.iter_mut().enumerate() {
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(25, 28, 32))
+                    .fill(SURFACE_BG)
                     .inner_margin(egui::Margin::symmetric(10, 8))
                     .corner_radius(4)
+                    .stroke(egui::Stroke::new(1.0, STROKE))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             if ui.checkbox(&mut item.done, "").changed() {
@@ -260,11 +270,14 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
             .then(left.title.cmp(&right.title))
     });
 
-    panel_frame(SURFACE_BG).show(ui, |ui| {
+    panel_frame(SURFACE_LOW).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.heading("Calendar");
+            ui.label(egui::RichText::new("Calendar").size(16.0).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("+ Event").clicked() {
+                if ui
+                    .add(egui::Button::new("+ Event").small().corner_radius(6))
+                    .clicked()
+                {
                     calendar.events.push(new_calendar_event(
                         Local::now().format("%Y-%m-%d").to_string(),
                     ));
@@ -283,9 +296,10 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (index, event) in calendar.events.iter_mut().enumerate() {
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(25, 28, 32))
+                    .fill(SURFACE_BG)
                     .inner_margin(egui::Margin::same(10))
                     .corner_radius(4)
+                    .stroke(egui::Stroke::new(1.0, STROKE))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Date").small().color(TEXT_MUTED));

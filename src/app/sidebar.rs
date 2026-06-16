@@ -1,8 +1,8 @@
 use eframe::egui;
 
 #[cfg(feature = "s3")]
-use super::{ACCENT, S3ConnectionStatus};
-use super::{GimjiApp, SIDEBAR_BG, SURFACE_HOVER, TEXT_MUTED};
+use super::S3ConnectionStatus;
+use super::{ACCENT, GimjiApp, SIDEBAR_BG, STROKE, SURFACE_HOVER, TEXT_MUTED};
 
 const SIDEBAR_DEFAULT_WIDTH: f32 = 220.0;
 const SIDEBAR_ROW_HEIGHT: f32 = 28.0;
@@ -18,17 +18,19 @@ impl GimjiApp {
             .frame(
                 egui::Frame::new()
                     .fill(SIDEBAR_BG)
-                    .inner_margin(egui::Margin::symmetric(14, 16)),
+                    .inner_margin(egui::Margin::symmetric(14, 16))
+                    .stroke(egui::Stroke::new(1.0, STROKE)),
             )
             .show_inside(root_ui, |ui| {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
 
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Gimji").size(18.0).strong());
+                        ui.label(egui::RichText::new("Gimji").size(21.0).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
-                                .add(egui::Button::new("Quit").small().frame(false).truncate())
+                                .add(egui::Button::new("x").small().frame(false).truncate())
+                                .on_hover_text("Quit")
                                 .clicked()
                             {
                                 ui.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -260,7 +262,30 @@ fn sidebar_row(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response
             ui.painter().rect_filled(rect, SIDEBAR_RADIUS, fill);
         }
 
-        let text_rect = rect.shrink2(egui::vec2(8.0, 0.0));
+        let marker_color = if selected {
+            ACCENT
+        } else if response.hovered() {
+            TEXT_MUTED
+        } else {
+            egui::Color32::from_rgb(82, 91, 96)
+        };
+        ui.painter().circle_filled(
+            egui::pos2(rect.left() + 8.0, rect.center().y),
+            2.5,
+            marker_color,
+        );
+        // if selected {
+        //     let accent_rect = egui::Rect::from_min_size(
+        //         egui::pos2(rect.left(), rect.top() + 7.0),
+        //         egui::vec2(2.0, rect.height() - 14.0),
+        //     );
+        //     ui.painter().rect_filled(accent_rect, 1.0, ACCENT);
+        // }
+
+        let text_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + 18.0, rect.top()),
+            egui::pos2(rect.right() - 8.0, rect.bottom()),
+        );
         let text_color = if selected {
             egui::Color32::WHITE
         } else {

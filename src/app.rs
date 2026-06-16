@@ -22,14 +22,15 @@ fn confirm_button_label_for_delete() -> &'static str {
 }
 
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(700);
-const APP_BG: egui::Color32 = egui::Color32::from_rgb(18, 19, 21);
-const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(24, 26, 29);
-const SURFACE_BG: egui::Color32 = egui::Color32::from_rgb(31, 34, 38);
-const SURFACE_HOVER: egui::Color32 = egui::Color32::from_rgb(39, 43, 48);
+const APP_BG: egui::Color32 = egui::Color32::from_rgb(13, 15, 16);
+const SIDEBAR_BG: egui::Color32 = egui::Color32::from_rgb(16, 18, 20);
+const SURFACE_LOW: egui::Color32 = egui::Color32::from_rgb(19, 21, 23);
+const SURFACE_BG: egui::Color32 = egui::Color32::from_rgb(23, 25, 28);
+const SURFACE_HOVER: egui::Color32 = egui::Color32::from_rgb(32, 36, 39);
 const ACTIVE_BG: egui::Color32 = egui::Color32::from_rgb(54, 70, 92);
-const ACCENT: egui::Color32 = egui::Color32::from_rgb(84, 162, 132);
-const TEXT_MUTED: egui::Color32 = egui::Color32::from_rgb(154, 163, 175);
-const STROKE: egui::Color32 = egui::Color32::from_rgb(52, 56, 62);
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(82, 196, 184);
+const TEXT_MUTED: egui::Color32 = egui::Color32::from_rgb(137, 146, 151);
+const STROKE: egui::Color32 = egui::Color32::from_rgb(45, 50, 53);
 #[cfg(test)]
 const NOTE_HEADER_ACTION_HEIGHT: f32 = 36.0;
 #[cfg(feature = "s3")]
@@ -783,9 +784,11 @@ impl GimjiApp {
             .frame(
                 egui::Frame::new()
                     .fill(APP_BG)
-                    .inner_margin(egui::Margin::symmetric(20, 12)),
+                    .inner_margin(egui::Margin::symmetric(18, 14)),
             )
             .show_inside(root_ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(8.0, 7.0);
+
                 let Some(workspace) = self.workspace.as_ref() else {
                     render_empty_state(ui, "No workspace", "Open or create a folder to begin.");
                     return;
@@ -803,12 +806,12 @@ impl GimjiApp {
                 // 1. Note Header
                 self.render_note_header(ui, &note);
 
-                ui.add_space(8.0);
+                ui.add_space(4.0);
 
                 // 2. Tab Row (with inline "+" to add tabs)
                 self.render_tab_row(ui, &note);
 
-                ui.add_space(8.0);
+                ui.add_space(2.0);
 
                 // 3. Status Strip
                 render_status_strip(
@@ -818,7 +821,7 @@ impl GimjiApp {
                     &self.save_status,
                 );
 
-                ui.add_space(8.0);
+                ui.add_space(6.0);
 
                 // 4. Content Area
                 if selected_tab.is_none() {
@@ -927,16 +930,16 @@ fn load_recent_workspaces() -> RecentWorkspaces {
 
 fn configure_theme(context: &egui::Context) {
     let mut style = (*context.global_style()).clone();
-    style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-    style.spacing.button_padding = egui::vec2(10.0, 4.0);
-    style.spacing.window_margin = egui::Margin::same(12);
+    style.spacing.item_spacing = egui::vec2(7.0, 7.0);
+    style.spacing.button_padding = egui::vec2(9.0, 4.0);
+    style.spacing.window_margin = egui::Margin::same(10);
     style.visuals = egui::Visuals::dark();
     style.visuals.panel_fill = APP_BG;
     style.visuals.window_fill = SURFACE_BG;
-    style.visuals.extreme_bg_color = egui::Color32::from_rgb(14, 15, 17);
+    style.visuals.extreme_bg_color = egui::Color32::from_rgb(10, 12, 13);
     style.visuals.faint_bg_color = SURFACE_BG;
     style.visuals.widgets.noninteractive.bg_fill = SURFACE_BG;
-    style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(37, 40, 44);
+    style.visuals.widgets.inactive.bg_fill = SURFACE_LOW;
     style.visuals.widgets.hovered.bg_fill = SURFACE_HOVER;
     style.visuals.widgets.active.bg_fill = ACTIVE_BG;
     style.visuals.selection.bg_fill = ACTIVE_BG;
@@ -971,7 +974,7 @@ fn note_header_action_area_size(width: f32) -> egui::Vec2 {
 fn panel_frame(fill: egui::Color32) -> egui::Frame {
     egui::Frame::new()
         .fill(fill)
-        .inner_margin(egui::Margin::same(12))
+        .inner_margin(egui::Margin::same(14))
         .corner_radius(6)
         .stroke(egui::Stroke::new(1.0, STROKE))
 }
