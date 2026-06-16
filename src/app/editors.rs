@@ -44,7 +44,7 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
     let mut action = None;
 
     panel_frame(SURFACE_BG).show(ui, |ui| {
-        egui::ScrollArea::horizontal().show(ui, |ui| {
+        egui::ScrollArea::new(kanban_scroll_axes()).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 for column_index in 0..board.columns.len() {
                     ui.allocate_ui_with_layout(
@@ -357,6 +357,10 @@ pub(super) fn new_calendar_event(date: String) -> CalendarEvent {
 #[cfg(test)]
 pub(super) fn kanban_column_header_action_area_size(width: f32) -> egui::Vec2 {
     egui::vec2(width, super::NOTE_HEADER_ACTION_HEIGHT)
+}
+
+pub(super) fn kanban_scroll_axes() -> [bool; 2] {
+    [true, true]
 }
 
 #[cfg(test)]

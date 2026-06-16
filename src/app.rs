@@ -1038,7 +1038,7 @@ mod tests {
     use super::editors::{
         KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
         kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
-        markdown_editor_desired_rows, new_calendar_event, new_todo_item,
+        kanban_scroll_axes, markdown_editor_desired_rows, new_calendar_event, new_todo_item,
     };
     #[cfg(feature = "s3")]
     use super::{ConfirmAction, S3ConnectionStatus, initial_s3_connection_settings};
@@ -1363,6 +1363,11 @@ mod tests {
 
         assert_eq!(size.x, KANBAN_COLUMN_WIDTH);
         assert_eq!(size.y, 0.0);
+    }
+
+    #[test]
+    fn kanban_board_scrolls_horizontally_and_vertically() {
+        assert_eq!(kanban_scroll_axes(), [true, true]);
     }
 
     #[test]
