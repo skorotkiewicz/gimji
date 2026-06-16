@@ -5,10 +5,9 @@ use std::path::{Component, Path, PathBuf};
 use crate::Result;
 use crate::errors::AppError;
 
-use aws_sdk_s3::Client;
-use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
-use aws_sdk_s3::error::ProvideErrorMetadata;
-use aws_sdk_s3::primitives::ByteStream;
+use s3::bucket::Bucket;
+use s3::creds::Credentials;
+use s3::region::Region;
 use serde::{Deserialize, Serialize};
 
 use crate::models::AppConfig;
@@ -19,18 +18,8 @@ use crate::storage::validate_relative_content_path;
 const BACKUP_MANIFEST_KEY: &str = ".gimji/backup-manifest.json";
 const BACKUP_MANIFEST_VERSION: u32 = 1;
 
-fn s3_service_error<E>(operation: &str, key: &str, source: &E) -> AppError
-where
-    E: ProvideErrorMetadata + std::fmt::Display,
-{
-    let detail = match (source.code(), source.message()) {
-        (Some(code), Some(message)) => format!("{code}: {message}"),
-        (Some(code), None) => code.to_owned(),
-        (None, Some(message)) => message.to_owned(),
-        (None, None) => source.to_string(),
-    };
-
-    AppError::S3ConnectionFailed(format!("{operation} failed for '{key}': {detail}"))
+fn s3_service_error(operation: &str, key: &str, source: impl std::fmt::Display) -> AppError {
+    AppError::S3ConnectionFailed(format!("{operation} failed for '{key}': {source}"))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -55,21 +44,16 @@ impl S3ConnectionSettings {
     pub async fn test_connection(&self) -> Result<()> {
         self.validate_for_connection()?;
 
-        let client = self.client();
         let bucket = self.bucket.trim();
         if bucket.is_empty() {
-            client
-                .list_buckets()
-                .send()
+            Bucket::list_buckets(self.region(), self.credentials()?)
                 .await
-                .map_err(|source| s3_service_error("ListBuckets", "<buckets>", &source))?;
+                .map_err(|source| s3_service_error("ListBuckets", "<buckets>", source))?;
         } else {
-            client
-                .head_bucket()
-                .bucket(bucket)
-                .send()
+            self.storage_bucket()?
+                .list_page(String::new(), None, None, None, Some(1))
                 .await
-                .map_err(|source| s3_service_error("HeadBucket", bucket, &source))?;
+                .map_err(|source| s3_service_error("ListObjectsV2", bucket, source))?;
         }
 
         Ok(())
@@ -78,34 +62,25 @@ impl S3ConnectionSettings {
     pub async fn backup_workspace(&self, workspace: &Workspace) -> Result<()> {
         self.validate_for_backup()?;
 
-        let client = self.client();
-        let bucket = self.bucket.trim();
+        let bucket = self.storage_bucket()?;
         let files = workspace_backup_files(workspace.root())?;
         for file in &files {
             let bytes = fs::read(&file.path).map_err(|source| AppError::io(&file.path, source))?;
             let key = self.object_key(&file.key);
-            client
-                .put_object()
-                .bucket(bucket)
-                .key(&key)
-                .body(ByteStream::from(bytes))
-                .send()
+            bucket
+                .put_object(&key, &bytes)
                 .await
-                .map_err(|source| s3_service_error("PutObject", &key, &source))?;
+                .map_err(|source| s3_service_error("PutObject", &key, source))?;
         }
 
         let manifest = backup_manifest_for_files(&files)?;
         let manifest_bytes = serde_json::to_vec_pretty(&manifest)
             .map_err(|source| AppError::json(BACKUP_MANIFEST_KEY, source))?;
         let key = self.object_key(BACKUP_MANIFEST_KEY);
-        client
-            .put_object()
-            .bucket(bucket)
-            .key(&key)
-            .body(ByteStream::from(manifest_bytes))
-            .send()
+        bucket
+            .put_object(&key, &manifest_bytes)
             .await
-            .map_err(|source| s3_service_error("PutObject", &key, &source))?;
+            .map_err(|source| s3_service_error("PutObject", &key, source))?;
 
         Ok(())
     }
@@ -113,23 +88,22 @@ impl S3ConnectionSettings {
     pub async fn restore_workspace(&self, workspace: &Workspace) -> Result<()> {
         self.validate_for_backup()?;
 
-        let client = self.client();
-        let bucket = self.bucket.trim();
+        let bucket = self.storage_bucket()?;
         let root = workspace.root();
 
         let config_bytes = self
-            .object_bytes(&client, &self.object_key("config.json"))
+            .object_bytes(&bucket, &self.object_key("config.json"))
             .await?;
         let mut content_objects = Vec::new();
 
-        let manifest = self.backup_manifest(&client, bucket).await?;
+        let manifest = self.backup_manifest(&bucket).await?;
         let content_keys = match &manifest {
             Some(manifest) => content_keys_from_parsed_manifest(manifest)?,
-            None => self.content_object_keys(&client, bucket).await?,
+            None => self.content_object_keys(&bucket).await?,
         };
 
         for key in content_keys {
-            let bytes = self.object_bytes(&client, &self.object_key(&key)).await?;
+            let bytes = self.object_bytes(&bucket, &self.object_key(&key)).await?;
             content_objects.push((key, bytes));
         }
 
@@ -145,9 +119,8 @@ impl S3ConnectionSettings {
     pub async fn read_text_object(&self, key: &str) -> Result<String> {
         self.validate_for_backup()?;
 
-        let bytes = self
-            .object_bytes(&self.client(), &self.object_key(key))
-            .await?;
+        let bucket = self.storage_bucket()?;
+        let bytes = self.object_bytes(&bucket, &self.object_key(key)).await?;
 
         String::from_utf8(bytes).map_err(|source| AppError::S3ConnectionFailed(source.to_string()))
     }
@@ -176,46 +149,25 @@ impl S3ConnectionSettings {
             .map(str::to_owned)
     }
 
-    async fn object_bytes(&self, client: &Client, key: &str) -> Result<Vec<u8>> {
-        let object = client
-            .get_object()
-            .bucket(self.bucket.trim())
-            .key(key)
-            .send()
+    async fn object_bytes(&self, bucket: &Bucket, key: &str) -> Result<Vec<u8>> {
+        let object = bucket
+            .get_object(key)
             .await
-            .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
+            .map_err(|source| s3_service_error("GetObject", key, source))?;
 
-        object
-            .body
-            .collect()
-            .await
-            .map(|body| body.into_bytes().to_vec())
-            .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))
+        Ok(object.as_slice().to_vec())
     }
 
-    async fn content_object_keys(&self, client: &Client, bucket: &str) -> Result<Vec<String>> {
+    async fn content_object_keys(&self, bucket: &Bucket) -> Result<Vec<String>> {
         let mut keys = Vec::new();
-        let mut continuation_token = None;
+        let results = bucket
+            .list(self.object_prefix("content/"), None)
+            .await
+            .map_err(|source| s3_service_error("ListObjectsV2", "content/", source))?;
 
-        loop {
-            let mut request = client
-                .list_objects_v2()
-                .bucket(bucket)
-                .prefix(self.object_prefix("content/"));
-            if let Some(token) = continuation_token {
-                request = request.continuation_token(token);
-            }
-
-            let response = request
-                .send()
-                .await
-                .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
-
-            for object in response.contents() {
-                let Some(key) = object.key() else {
-                    continue;
-                };
-                let Some(key) = self.local_object_key(key) else {
+        for result in results {
+            for object in result.contents {
+                let Some(key) = self.local_object_key(&object.key) else {
                     continue;
                 };
                 if key == "content/" || key.ends_with('/') {
@@ -224,39 +176,22 @@ impl S3ConnectionSettings {
                 validate_relative_content_path(&key)?;
                 keys.push(key);
             }
-
-            continuation_token = response.next_continuation_token().map(str::to_owned);
-            if continuation_token.is_none() {
-                break;
-            }
         }
 
         Ok(keys)
     }
 
-    async fn backup_manifest(
-        &self,
-        client: &Client,
-        bucket: &str,
-    ) -> Result<Option<BackupManifest>> {
+    async fn backup_manifest(&self, bucket: &Bucket) -> Result<Option<BackupManifest>> {
         let manifest_key = self.object_key(BACKUP_MANIFEST_KEY);
-        let response = client
-            .list_objects_v2()
-            .bucket(bucket)
-            .prefix(&manifest_key)
-            .send()
+        let manifest_exists = bucket
+            .object_exists(&manifest_key)
             .await
-            .map_err(|source| AppError::S3ConnectionFailed(source.to_string()))?;
-
-        let manifest_exists = response
-            .contents()
-            .iter()
-            .any(|object| object.key() == Some(manifest_key.as_str()));
+            .map_err(|source| s3_service_error("HeadObject", &manifest_key, source))?;
         if !manifest_exists {
             return Ok(None);
         }
 
-        let bytes = self.object_bytes(client, &manifest_key).await?;
+        let bytes = self.object_bytes(bucket, &manifest_key).await?;
         manifest_from_bytes(&bytes).map(Some)
     }
 
@@ -266,27 +201,28 @@ impl S3ConnectionSettings {
         Ok(())
     }
 
-    fn client(&self) -> Client {
-        let credentials = Credentials::new(
-            self.access_key_id.trim().to_owned(),
-            self.secret_access_key.trim().to_owned(),
-            None,
-            None,
-            "gimji",
-        );
-        let config = aws_sdk_s3::config::Builder::new()
-            .behavior_version(BehaviorVersion::latest())
-            .credentials_provider(credentials)
-            .endpoint_url(self.endpoint_url.trim())
-            .force_path_style(true)
-            .region(Region::new(self.region.trim().to_owned()))
-            // S3-compatible services such as MinIO can reject optional checksum headers.
-            .request_checksum_calculation(
-                aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
-            )
-            .build();
+    fn storage_bucket(&self) -> Result<Box<Bucket>> {
+        Bucket::new(self.bucket.trim(), self.region(), self.credentials()?)
+            .map(|bucket| bucket.with_path_style())
+            .map_err(|source| s3_service_error("CreateBucketClient", self.bucket.trim(), source))
+    }
 
-        Client::from_conf(config)
+    fn credentials(&self) -> Result<Credentials> {
+        Credentials::new(
+            Some(self.access_key_id.trim()),
+            Some(self.secret_access_key.trim()),
+            None,
+            None,
+            None,
+        )
+        .map_err(|source| AppError::InvalidS3Connection(source.to_string()))
+    }
+
+    fn region(&self) -> Region {
+        Region::Custom {
+            region: self.region.trim().to_owned(),
+            endpoint: self.endpoint_url.trim().to_owned(),
+        }
     }
 }
 
