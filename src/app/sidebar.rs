@@ -2,7 +2,7 @@ use eframe::egui;
 
 #[cfg(feature = "s3")]
 use super::S3ConnectionStatus;
-use super::{ACCENT, GimjiApp, SIDEBAR_BG, STROKE, SURFACE_HOVER, TEXT_MUTED};
+use super::{ACCENT, ConfirmAction, GimjiApp, SIDEBAR_BG, STROKE, SURFACE_HOVER, TEXT_MUTED};
 
 const SIDEBAR_DEFAULT_WIDTH: f32 = 220.0;
 const SIDEBAR_ROW_HEIGHT: f32 = 28.0;
@@ -152,13 +152,98 @@ impl GimjiApp {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             for (id, title, selected) in notes {
-                                if sidebar_row(ui, &title, selected).clicked() {
+                                if selected && self.editing_note_title {
+                                    self.render_sidebar_note_rename_editor(ui);
+                                    continue;
+                                }
+
+                                let response = sidebar_row(ui, &title, selected)
+                                    .on_hover_text("Right-click for actions");
+
+                                response.context_menu(|ui| {
+                                    ui.set_min_width(120.0);
+                                    if ui.button("Rename").clicked() {
+                                        if !selected {
+                                            self.select_note(id.clone());
+                                        } else {
+                                            self.refresh_rename_buffers();
+                                        }
+                                        self.editing_note_title = true;
+                                        ui.close();
+                                    }
+                                    ui.separator();
+                                    if ui.button("Delete").clicked() {
+                                        self.request_delete(ConfirmAction::DeleteNote(id.clone()));
+                                        ui.close();
+                                    }
+                                });
+
+                                if response.clicked() {
                                     self.select_note(id);
                                 }
                             }
                         });
                 });
             });
+    }
+
+    fn render_sidebar_note_rename_editor(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+
+            let response = ui.add_sized(
+                [ui.available_width(), SIDEBAR_FIELD_HEIGHT],
+                egui::TextEdit::singleline(&mut self.rename_note_title)
+                    .hint_text("Note name")
+                    .desired_width(f32::INFINITY)
+                    .margin(egui::Vec2::new(6.0, 5.0)),
+            );
+            let (enter, escape) = if response.has_focus() {
+                ui.input(|i| {
+                    (
+                        i.key_pressed(egui::Key::Enter),
+                        i.key_pressed(egui::Key::Escape),
+                    )
+                })
+            } else {
+                (false, false)
+            };
+            let mut save = enter;
+            let mut cancel = escape;
+
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let width = (ui.available_width() - 6.0) / 2.0;
+                if ui
+                    .add_sized(
+                        [width, 18.0],
+                        egui::Button::new("Save")
+                            .small()
+                            .corner_radius(SIDEBAR_RADIUS),
+                    )
+                    .clicked()
+                {
+                    save = true;
+                }
+                if ui
+                    .add_sized(
+                        [width, 18.0],
+                        egui::Button::new("Cancel")
+                            .small()
+                            .corner_radius(SIDEBAR_RADIUS),
+                    )
+                    .clicked()
+                {
+                    cancel = true;
+                }
+            });
+
+            if cancel {
+                self.cancel_note_title_edit();
+            } else if save {
+                self.rename_current_note();
+            }
+        });
     }
 
     #[cfg(feature = "s3")]
@@ -185,7 +270,7 @@ impl GimjiApp {
         ui.horizontal(|ui| {
             if ui
                 .add_sized(
-                    [74.0, SIDEBAR_ROW_HEIGHT],
+                    [74.0, 24.0],
                     egui::Button::new("Backup")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
@@ -196,7 +281,7 @@ impl GimjiApp {
             }
             if ui
                 .add_sized(
-                    [76.0, SIDEBAR_ROW_HEIGHT],
+                    [76.0, 24.0],
                     egui::Button::new("Restore")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
@@ -209,7 +294,7 @@ impl GimjiApp {
         ui.horizontal(|ui| {
             if ui
                 .add_sized(
-                    [64.0, SIDEBAR_ROW_HEIGHT],
+                    [64.0, 18.0],
                     egui::Button::new("Test")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),

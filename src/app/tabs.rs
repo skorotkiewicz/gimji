@@ -12,47 +12,7 @@ const TAB_CHIP_RADIUS: u8 = 6;
 
 impl GimjiApp {
     pub(super) fn render_note_header(&mut self, ui: &mut egui::Ui, note: &Note) {
-        ui.horizontal(|ui| {
-            if self.editing_note_title {
-                let response = ui.add_sized(
-                    [160.0, 28.0],
-                    egui::TextEdit::singleline(&mut self.rename_note_title),
-                );
-                let (enter, escape) = if response.has_focus() {
-                    ui.input(|i| {
-                        (
-                            i.key_pressed(egui::Key::Enter),
-                            i.key_pressed(egui::Key::Escape),
-                        )
-                    })
-                } else {
-                    (false, false)
-                };
-                if escape {
-                    self.cancel_note_title_edit();
-                } else if enter || ui.button("Save").clicked() {
-                    self.rename_current_note();
-                }
-                if ui.button("Cancel").clicked() {
-                    self.cancel_note_title_edit();
-                }
-            } else {
-                ui.heading(&note.title);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("Delete Note")
-                        .on_hover_text("Remove note metadata only")
-                        .clicked()
-                    {
-                        self.request_delete(ConfirmAction::DeleteNote(note.id.clone()));
-                    }
-                    if ui.button("Rename").clicked() {
-                        self.editing_note_title = true;
-                        self.refresh_rename_buffers();
-                    }
-                });
-            }
-        });
+        ui.heading(&note.title);
     }
 
     pub(super) fn render_tab_row(&mut self, ui: &mut egui::Ui, note: &Note) {

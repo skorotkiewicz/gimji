@@ -659,6 +659,7 @@ impl GimjiApp {
                 if let Some(workspace) = &mut self.workspace {
                     match workspace.delete_note(&note_id, options) {
                         Ok(()) => {
+                            self.editing_note_title = false;
                             self.renaming_tab = false;
                             self.rename_tab_id = None;
                             self.loaded = None;
