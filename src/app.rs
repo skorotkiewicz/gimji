@@ -1392,6 +1392,19 @@ mod tests {
     }
 
     #[test]
+    fn tab_chip_size_is_compact_and_bounded() {
+        let short = super::tabs::tab_chip_size("Docs");
+        let long = super::tabs::tab_chip_size(
+            "A very long tab title that should not push the whole row around",
+        );
+
+        assert_eq!(short.y, 30.0);
+        assert_eq!(short.x, 82.0);
+        assert_eq!(long.y, 30.0);
+        assert_eq!(long.x, 190.0);
+    }
+
+    #[test]
     fn each_tab_type_has_distinct_tab_color() {
         let colors: Vec<_> = TabType::ALL
             .iter()

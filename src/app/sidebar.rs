@@ -2,7 +2,7 @@ use eframe::egui;
 
 #[cfg(feature = "s3")]
 use super::{ACCENT, S3ConnectionStatus};
-use super::{ACTIVE_BG, GimjiApp, SIDEBAR_BG, SURFACE_HOVER, TEXT_MUTED};
+use super::{GimjiApp, SIDEBAR_BG, SURFACE_HOVER, TEXT_MUTED};
 
 const SIDEBAR_DEFAULT_WIDTH: f32 = 220.0;
 const SIDEBAR_ROW_HEIGHT: f32 = 28.0;
@@ -248,7 +248,8 @@ fn sidebar_row(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response
 
     if ui.is_rect_visible(rect) {
         let fill = if selected {
-            ACTIVE_BG
+            // ACTIVE_BG
+            egui::Color32::TRANSPARENT
         } else if response.hovered() {
             SURFACE_HOVER
         } else {
