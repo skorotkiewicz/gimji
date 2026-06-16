@@ -75,7 +75,8 @@ impl GimjiApp {
                             && self.renaming_tab
                             && self.rename_tab_id.as_deref() == Some(tab.id.as_str())
                         {
-                            ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 4.0;
                                 let response = ui.add_sized(
                                     [150.0, TAB_CHIP_HEIGHT],
                                     egui::TextEdit::singleline(&mut self.rename_tab_title)
@@ -96,26 +97,29 @@ impl GimjiApp {
                                 let mut save = enter || response.lost_focus();
                                 let mut cancel = escape;
 
-                                if ui
-                                    .add(
-                                        egui::Button::new("Save")
-                                            .small()
-                                            .corner_radius(TAB_CHIP_RADIUS),
-                                    )
-                                    .clicked()
-                                {
-                                    save = true;
-                                }
-                                if ui
-                                    .add(
-                                        egui::Button::new("Cancel")
-                                            .small()
-                                            .corner_radius(TAB_CHIP_RADIUS),
-                                    )
-                                    .clicked()
-                                {
-                                    cancel = true;
-                                }
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    if ui
+                                        .add(
+                                            egui::Button::new("Save")
+                                                .small()
+                                                .corner_radius(TAB_CHIP_RADIUS),
+                                        )
+                                        .clicked()
+                                    {
+                                        save = true;
+                                    }
+                                    if ui
+                                        .add(
+                                            egui::Button::new("Cancel")
+                                                .small()
+                                                .corner_radius(TAB_CHIP_RADIUS),
+                                        )
+                                        .clicked()
+                                    {
+                                        cancel = true;
+                                    }
+                                });
 
                                 if cancel {
                                     self.cancel_tab_title_edit();
