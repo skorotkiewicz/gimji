@@ -9,7 +9,7 @@ impl GimjiApp {
         ui.horizontal(|ui| {
             if self.editing_note_title {
                 let response = ui.add_sized(
-                    [ui.available_width() - 80.0, 28.0],
+                    [160.0, 28.0],
                     egui::TextEdit::singleline(&mut self.rename_note_title),
                 );
                 let (enter, escape) = if response.has_focus() {

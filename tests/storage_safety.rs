@@ -2,7 +2,6 @@ use std::fs;
 
 use gimji::models::{CalendarData, KanbanBoard, TabType, TodoList};
 use gimji::storage::atomic::atomic_write;
-use gimji::storage::migration::{migrate_calendar, migrate_kanban, migrate_todo};
 use gimji::storage::{make_content_file_name, sanitize_file_stem, validate_relative_content_path};
 
 #[test]
@@ -34,43 +33,18 @@ fn content_paths_cannot_escape_workspace_content_directory() {
 }
 
 #[test]
-fn json_content_schemas_are_versioned() {
+fn json_content_schemas_have_no_version_field() {
     let board = KanbanBoard::default();
     let todos = TodoList::default();
     let calendar = CalendarData::default();
 
-    assert_eq!(board.version, 1);
-    assert_eq!(todos.version, 1);
-    assert_eq!(calendar.version, 1);
+    let board_json = serde_json::to_string(&board).unwrap();
+    let todos_json = serde_json::to_string(&todos).unwrap();
+    let calendar_json = serde_json::to_string(&calendar).unwrap();
 
-    assert!(
-        serde_json::to_string(&board)
-            .unwrap()
-            .contains("\"version\":1")
-    );
-    assert!(
-        serde_json::to_string(&todos)
-            .unwrap()
-            .contains("\"version\":1")
-    );
-    assert!(
-        serde_json::to_string(&calendar)
-            .unwrap()
-            .contains("\"version\":1")
-    );
-}
-
-#[test]
-fn migration_stubs_accept_version_one_and_reject_future_versions() {
-    assert!(migrate_kanban(KanbanBoard::default()).is_ok());
-    assert!(migrate_todo(TodoList::default()).is_ok());
-    assert!(migrate_calendar(CalendarData::default()).is_ok());
-
-    let future_board = KanbanBoard {
-        version: 2,
-        ..Default::default()
-    };
-    assert!(migrate_kanban(future_board).is_err());
+    assert!(!board_json.contains("version"));
+    assert!(!todos_json.contains("version"));
+    assert!(!calendar_json.contains("version"));
 }
 
 #[test]

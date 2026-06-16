@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use crate::models::AppConfig;
 use crate::storage::Workspace;
 use crate::storage::atomic::atomic_write;
-use crate::storage::migration::migrate_config;
 use crate::storage::validate_relative_content_path;
 
 const BACKUP_MANIFEST_KEY: &str = ".gimji/backup-manifest.json";
@@ -503,9 +502,8 @@ fn validate_restore_payload(
         content_keys.insert(key.as_str());
     }
 
-    let mut config: AppConfig = serde_json::from_slice(config_bytes)
+    let config: AppConfig = serde_json::from_slice(config_bytes)
         .map_err(|source| AppError::json("config.json", source))?;
-    migrate_config(&mut config)?;
 
     for note in &config.notes {
         for tab in &note.tabs {
@@ -672,7 +670,6 @@ mod tests {
             tabs: vec![tab],
         };
         let config = AppConfig {
-            version: crate::models::config::CONFIG_VERSION,
             selected_note_id: Some("note".to_owned()),
             selected_tab_id: Some("tab".to_owned()),
             notes: vec![note],

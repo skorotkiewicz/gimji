@@ -1,6 +1,5 @@
 #![cfg(feature = "s3")]
 
-use gimji::models::TabContent;
 use gimji::storage::S3ConnectionSettings;
 use gimji::storage::Workspace;
 use std::sync::{Mutex, OnceLock};
@@ -97,7 +96,7 @@ fn s3_backup_uploads_workspace_config_and_content_files() {
         .expect("selected tab")
         .to_owned();
     workspace
-        .save_tab_content(&tab_id, &TabContent::Markdown("backed up body".to_owned()))
+        .save_markdown_content(&tab_id, &"backed up body".to_owned())
         .expect("save content");
     let content_key = workspace.config().notes[0].tabs[0].file_name.clone();
     let settings = storage_bucket_settings();
@@ -131,7 +130,7 @@ fn s3_restore_downloads_workspace_config_and_content_files() {
         .expect("selected tab")
         .to_owned();
     workspace
-        .save_tab_content(&tab_id, &TabContent::Markdown("restored body".to_owned()))
+        .save_markdown_content(&tab_id, &"restored body".to_owned())
         .expect("save content");
     let settings = storage_bucket_settings();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
@@ -144,7 +143,7 @@ fn s3_restore_downloads_workspace_config_and_content_files() {
         .rename_note(&note_id, "Local Only")
         .expect("rename");
     workspace
-        .save_tab_content(&tab_id, &TabContent::Markdown("local body".to_owned()))
+        .save_markdown_content(&tab_id, &"local body".to_owned())
         .expect("save local content");
 
     runtime
@@ -157,9 +156,9 @@ fn s3_restore_downloads_workspace_config_and_content_files() {
     assert_eq!(restored.config().notes[0].title, "S3 Restore");
     assert_eq!(
         restored
-            .load_tab_content(&restored_tab_id)
+            .load_markdown_content(&restored_tab_id)
             .expect("load restored content"),
-        TabContent::Markdown("restored body".to_owned())
+        "restored body".to_owned()
     );
 }
 

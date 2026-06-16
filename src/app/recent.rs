@@ -23,20 +23,16 @@ impl RecentWorkspaces {
         self.paths.retain(|recent| recent != path);
         self.paths.len() != original_len
     }
-}
 
-pub(super) struct RecentWorkspacesStore;
-
-impl RecentWorkspacesStore {
-    pub(super) fn load(path: &Path) -> RecentWorkspaces {
+    pub(super) fn load(path: &Path) -> Self {
         let Ok(text) = fs::read_to_string(path) else {
-            return RecentWorkspaces::default();
+            return Self::default();
         };
         serde_json::from_str(&text).unwrap_or_default()
     }
 
-    pub(super) fn save(path: &Path, recent: &RecentWorkspaces) {
-        if let Ok(bytes) = serde_json::to_vec_pretty(recent) {
+    pub(super) fn save(&self, path: &Path) {
+        if let Ok(bytes) = serde_json::to_vec_pretty(self) {
             let _ = atomic_write(path, &bytes);
         }
     }

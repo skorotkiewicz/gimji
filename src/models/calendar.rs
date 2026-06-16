@@ -2,21 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::config::{new_id, timestamp};
 
-pub const CALENDAR_VERSION: u32 = 1;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct CalendarData {
-    pub version: u32,
     pub events: Vec<CalendarEvent>,
-}
-
-impl Default for CalendarData {
-    fn default() -> Self {
-        Self {
-            version: CALENDAR_VERSION,
-            events: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

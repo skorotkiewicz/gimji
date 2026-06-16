@@ -2,18 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::config::{new_id, timestamp};
 
-pub const KANBAN_VERSION: u32 = 1;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KanbanBoard {
-    pub version: u32,
     pub columns: Vec<KanbanColumn>,
 }
 
 impl Default for KanbanBoard {
     fn default() -> Self {
         Self {
-            version: KANBAN_VERSION,
             columns: vec![
                 KanbanColumn::new("todo", "Todo"),
                 KanbanColumn::new("doing", "Doing"),

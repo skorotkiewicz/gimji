@@ -1,5 +1,4 @@
 pub mod atomic;
-pub mod migration;
 #[cfg(feature = "s3")]
 pub mod s3;
 pub mod workspace;

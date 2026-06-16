@@ -4,10 +4,9 @@ use std::path::{Component, Path, PathBuf};
 use crate::Result;
 use crate::errors::AppError;
 use crate::models::{
-    AppConfig, CalendarData, KanbanBoard, Note, Tab, TabContent, TabType, TodoList,
+    AppConfig, CalendarData, KanbanBoard, MarkdownContent, Note, Tab, TabType, TodoList,
 };
 use crate::storage::atomic::atomic_write;
-use crate::storage::migration::{migrate_calendar, migrate_config, migrate_kanban, migrate_todo};
 
 const CONFIG_FILE: &str = "config.json";
 const CONTENT_DIR: &str = "content";
@@ -61,9 +60,8 @@ impl Workspace {
 
         let text = fs::read_to_string(&config_path)
             .map_err(|source| AppError::io(&config_path, source))?;
-        let mut config: AppConfig =
+        let config: AppConfig =
             serde_json::from_str(&text).map_err(|source| AppError::json(&config_path, source))?;
-        migrate_config(&mut config)?;
 
         for note in &config.notes {
             for tab in &note.tabs {
@@ -260,41 +258,92 @@ impl Workspace {
         self.save_config()
     }
 
-    pub fn save_tab_content(&self, tab_id: &str, content: &TabContent) -> Result<()> {
+    pub fn save_markdown_content(&self, tab_id: &str, content: &MarkdownContent) -> Result<()> {
         let tab = self.find_tab(tab_id)?;
-        if content.tab_type() != tab.tab_type {
+        if tab.tab_type != TabType::Markdown {
             return Err(AppError::WrongContentType {
                 expected: tab.tab_type.as_str(),
-                actual: content.type_name(),
+                actual: "markdown",
             });
         }
-
-        match content {
-            TabContent::Markdown(text) => self.write_text_content(tab, text),
-            TabContent::Kanban(board) => self.write_json_content(tab, board),
-            TabContent::Todo(list) => self.write_json_content(tab, list),
-            TabContent::Calendar(calendar) => self.write_json_content(tab, calendar),
-        }
+        self.write_text_content(tab, content)
     }
 
-    pub fn load_tab_content(&self, tab_id: &str) -> Result<TabContent> {
+    pub fn save_kanban_content(&self, tab_id: &str, board: &KanbanBoard) -> Result<()> {
         let tab = self.find_tab(tab_id)?;
-
-        match tab.tab_type {
-            TabType::Markdown => Ok(TabContent::Markdown(self.read_text_content(tab)?)),
-            TabType::Kanban => {
-                let board: KanbanBoard = self.read_json_content(tab)?;
-                Ok(TabContent::Kanban(migrate_kanban(board)?))
-            }
-            TabType::Todo => {
-                let list: TodoList = self.read_json_content(tab)?;
-                Ok(TabContent::Todo(migrate_todo(list)?))
-            }
-            TabType::Calendar => {
-                let calendar: CalendarData = self.read_json_content(tab)?;
-                Ok(TabContent::Calendar(migrate_calendar(calendar)?))
-            }
+        if tab.tab_type != TabType::Kanban {
+            return Err(AppError::WrongContentType {
+                expected: tab.tab_type.as_str(),
+                actual: "kanban",
+            });
         }
+        self.write_json_content(tab, board)
+    }
+
+    pub fn save_todo_content(&self, tab_id: &str, list: &TodoList) -> Result<()> {
+        let tab = self.find_tab(tab_id)?;
+        if tab.tab_type != TabType::Todo {
+            return Err(AppError::WrongContentType {
+                expected: tab.tab_type.as_str(),
+                actual: "todo",
+            });
+        }
+        self.write_json_content(tab, list)
+    }
+
+    pub fn save_calendar_content(&self, tab_id: &str, calendar: &CalendarData) -> Result<()> {
+        let tab = self.find_tab(tab_id)?;
+        if tab.tab_type != TabType::Calendar {
+            return Err(AppError::WrongContentType {
+                expected: tab.tab_type.as_str(),
+                actual: "calendar",
+            });
+        }
+        self.write_json_content(tab, calendar)
+    }
+
+    pub fn load_markdown_content(&self, tab_id: &str) -> Result<MarkdownContent> {
+        let tab = self.find_tab(tab_id)?;
+        if tab.tab_type != TabType::Markdown {
+            return Err(AppError::WrongContentType {
+                expected: "markdown",
+                actual: tab.tab_type.as_str(),
+            });
+        }
+        self.read_text_content(tab)
+    }
+
+    pub fn load_kanban_content(&self, tab_id: &str) -> Result<KanbanBoard> {
+        let tab = self.find_tab(tab_id)?;
+        if tab.tab_type != TabType::Kanban {
+            return Err(AppError::WrongContentType {
+                expected: "kanban",
+                actual: tab.tab_type.as_str(),
+            });
+        }
+        self.read_json_content(tab)
+    }
+
+    pub fn load_todo_content(&self, tab_id: &str) -> Result<TodoList> {
+        let tab = self.find_tab(tab_id)?;
+        if tab.tab_type != TabType::Todo {
+            return Err(AppError::WrongContentType {
+                expected: "todo",
+                actual: tab.tab_type.as_str(),
+            });
+        }
+        self.read_json_content(tab)
+    }
+
+    pub fn load_calendar_content(&self, tab_id: &str) -> Result<CalendarData> {
+        let tab = self.find_tab(tab_id)?;
+        if tab.tab_type != TabType::Calendar {
+            return Err(AppError::WrongContentType {
+                expected: "calendar",
+                actual: tab.tab_type.as_str(),
+            });
+        }
+        self.read_json_content(tab)
     }
 
     pub fn save_config(&self) -> Result<()> {

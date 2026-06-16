@@ -1,7 +1,7 @@
 use std::fs;
 
 use gimji::models::{
-    CalendarData, CalendarEvent, KanbanBoard, KanbanCard, TabContent, TabType, TodoItem, TodoList,
+    CalendarData, CalendarEvent, KanbanBoard, KanbanCard, TabType, TodoItem, TodoList,
 };
 use gimji::storage::{DeleteOptions, Workspace};
 
@@ -27,10 +27,7 @@ fn workspace_round_trips_metadata_and_tab_content_separately() {
         .expect("add calendar tab");
 
     workspace
-        .save_tab_content(
-            &markdown_tab_id,
-            &TabContent::Markdown("# Secret markdown body".to_owned()),
-        )
+        .save_markdown_content(&markdown_tab_id, &"# Secret markdown body".to_owned())
         .expect("save markdown");
 
     let mut board = KanbanBoard::default();
@@ -38,13 +35,13 @@ fn workspace_round_trips_metadata_and_tab_content_separately() {
         .cards
         .push(KanbanCard::new("Secret kanban card"));
     workspace
-        .save_tab_content(&kanban_tab_id, &TabContent::Kanban(board.clone()))
+        .save_kanban_content(&kanban_tab_id, &board)
         .expect("save kanban");
 
     let mut todos = TodoList::default();
     todos.items.push(TodoItem::new("Secret todo text"));
     workspace
-        .save_tab_content(&todo_tab_id, &TabContent::Todo(todos.clone()))
+        .save_todo_content(&todo_tab_id, &todos)
         .expect("save todo");
 
     let mut calendar = CalendarData::default();
@@ -54,32 +51,32 @@ fn workspace_round_trips_metadata_and_tab_content_separately() {
         "Secret event description",
     ));
     workspace
-        .save_tab_content(&calendar_tab_id, &TabContent::Calendar(calendar.clone()))
+        .save_calendar_content(&calendar_tab_id, &calendar)
         .expect("save calendar");
 
     let reloaded = Workspace::open(workspace_path).expect("reload workspace");
 
     assert_eq!(
         reloaded
-            .load_tab_content(&markdown_tab_id)
+            .load_markdown_content(&markdown_tab_id)
             .expect("load markdown"),
-        TabContent::Markdown("# Secret markdown body".to_owned())
+        "# Secret markdown body".to_owned()
     );
     assert_eq!(
         reloaded
-            .load_tab_content(&kanban_tab_id)
+            .load_kanban_content(&kanban_tab_id)
             .expect("load kanban"),
-        TabContent::Kanban(board)
+        board
     );
     assert_eq!(
-        reloaded.load_tab_content(&todo_tab_id).expect("load todo"),
-        TabContent::Todo(todos)
+        reloaded.load_todo_content(&todo_tab_id).expect("load todo"),
+        todos
     );
     assert_eq!(
         reloaded
-            .load_tab_content(&calendar_tab_id)
+            .load_calendar_content(&calendar_tab_id)
             .expect("load calendar"),
-        TabContent::Calendar(calendar)
+        calendar
     );
 
     let config_text = fs::read_to_string(workspace_path.join("config.json")).expect("read config");

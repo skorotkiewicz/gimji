@@ -2,21 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::config::{new_id, timestamp};
 
-pub const TODO_VERSION: u32 = 1;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct TodoList {
-    pub version: u32,
     pub items: Vec<TodoItem>,
-}
-
-impl Default for TodoList {
-    fn default() -> Self {
-        Self {
-            version: TODO_VERSION,
-            items: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

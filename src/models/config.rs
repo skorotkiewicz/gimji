@@ -2,25 +2,11 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const CONFIG_VERSION: u32 = 1;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AppConfig {
-    pub version: u32,
     pub selected_note_id: Option<String>,
     pub selected_tab_id: Option<String>,
     pub notes: Vec<Note>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            version: CONFIG_VERSION,
-            selected_note_id: None,
-            selected_tab_id: None,
-            notes: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
