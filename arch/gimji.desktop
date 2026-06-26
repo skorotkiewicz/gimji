@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Gimji
+Comment=Local-first notes for projects, tasks, boards, calendars, and markdown
+Exec=gimji
+Icon=gimji
+Terminal=false
+Categories=Office;
+Keywords=notes;tasks;kanban;calendar;markdown;

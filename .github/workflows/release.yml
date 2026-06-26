@@ -41,6 +41,8 @@ jobs:
         run: |
           mkdir dist && cd dist
           cp ../target/${{ matrix.target }}/release/gimji gimji
+          cp ../arch/gimji.desktop gimji.desktop
+          cp ../arch/gimji.svg gimji.svg
           cp ../README.md README.md
           cp ../LICENSE LICENSE
           tar czf ../gimji-${{ github.ref_name }}-${{ matrix.target }}.tar.gz *
