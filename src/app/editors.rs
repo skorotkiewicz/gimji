@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use chrono::Local;
 use eframe::egui;
 
@@ -41,11 +39,7 @@ pub(super) fn markdown_editor_desired_rows(markdown: &str) -> usize {
     markdown.lines().count().max(MARKDOWN_MIN_VISIBLE_ROWS)
 }
 
-pub(super) fn render_kanban(
-    ui: &mut egui::Ui,
-    board: &mut KanbanBoard,
-    collapsed_cards: &mut HashSet<String>,
-) -> bool {
+pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool {
     let mut dirty = false;
     let mut action = None;
 
@@ -105,9 +99,7 @@ pub(super) fn render_kanban(
                                                 ui.set_width(KANBAN_CARD_TEXT_WIDTH);
                                                 let card = &mut board.columns[column_index].cards
                                                     [card_index];
-                                                let card_id = card.id.clone();
-                                                let mut expanded =
-                                                    !collapsed_cards.contains(&card_id);
+                                                let mut expanded = !card.details_hidden;
                                                 ui.horizontal(|ui| {
                                                     let (_, response) = ui.allocate_exact_size(
                                                         egui::vec2(14.0, 14.0),
@@ -126,11 +118,9 @@ pub(super) fn render_kanban(
                                                     );
                                                     if response.clicked() {
                                                         expanded = !expanded;
-                                                        if expanded {
-                                                            collapsed_cards.remove(&card_id);
-                                                        } else {
-                                                            collapsed_cards.insert(card_id.clone());
-                                                        }
+                                                        card.details_hidden = !expanded;
+                                                        card.touch();
+                                                        dirty = true;
                                                     }
                                                     if ui
                                                         .add_sized(

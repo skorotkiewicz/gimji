@@ -43,6 +43,8 @@ pub struct KanbanCard {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub details_hidden: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -55,6 +57,7 @@ impl KanbanCard {
             id: new_id(),
             name: name.into(),
             description: String::new(),
+            details_hidden: false,
             created_at: now.clone(),
             updated_at: now,
         }
@@ -78,5 +81,6 @@ mod tests {
 
         assert_eq!(card.name, "Ship it");
         assert_eq!(card.description, "");
+        assert!(!card.details_hidden);
     }
 }
