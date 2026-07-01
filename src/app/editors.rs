@@ -109,19 +109,22 @@ pub(super) fn render_kanban(
                                                 let mut expanded =
                                                     !collapsed_cards.contains(&card_id);
                                                 ui.horizontal(|ui| {
-                                                    if ui
-                                                        .small_button(if expanded {
-                                                            "v"
-                                                        } else {
-                                                            ">"
-                                                        })
-                                                        .on_hover_text(if expanded {
+                                                    let (_, response) = ui.allocate_exact_size(
+                                                        egui::vec2(14.0, 14.0),
+                                                        egui::Sense::click(),
+                                                    );
+                                                    let response =
+                                                        response.on_hover_text(if expanded {
                                                             "Hide details"
                                                         } else {
                                                             "Show details"
-                                                        })
-                                                        .clicked()
-                                                    {
+                                                        });
+                                                    egui::collapsing_header::paint_default_icon(
+                                                        ui,
+                                                        if expanded { 1.0 } else { 0.0 },
+                                                        &response,
+                                                    );
+                                                    if response.clicked() {
                                                         expanded = !expanded;
                                                         if expanded {
                                                             collapsed_cards.remove(&card_id);
