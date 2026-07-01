@@ -9,6 +9,20 @@ const SIDEBAR_ROW_HEIGHT: f32 = 28.0;
 const SIDEBAR_FIELD_HEIGHT: f32 = 30.0;
 const SIDEBAR_RADIUS: u8 = 6;
 
+fn close_icon_button(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+    let response = response.on_hover_text("Quit");
+    let visuals = ui.style().interact(&response);
+    let rect = rect.shrink(2.0).expand(visuals.expansion);
+
+    ui.painter()
+        .line_segment([rect.left_top(), rect.right_bottom()], visuals.fg_stroke);
+    ui.painter()
+        .line_segment([rect.right_top(), rect.left_bottom()], visuals.fg_stroke);
+
+    response
+}
+
 impl GimjiApp {
     pub(super) fn render_sidebar(&mut self, root_ui: &mut egui::Ui) {
         egui::Panel::left("sidebar")
@@ -28,11 +42,7 @@ impl GimjiApp {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Gimji").size(21.0).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .add(egui::Button::new("x").small().frame(false).truncate())
-                                .on_hover_text("Quit")
-                                .clicked()
-                            {
+                            if close_icon_button(ui).clicked() {
                                 ui.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         });
