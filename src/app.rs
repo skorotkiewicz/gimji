@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 #[cfg(feature = "s3")]
 use std::env;
 use std::path::{Path, PathBuf};
@@ -138,6 +139,7 @@ struct GimjiApp {
     message: Option<String>,
     // UI State
     editing_note_title: bool,
+    collapsed_kanban_cards: HashSet<String>,
 }
 
 impl GimjiApp {
@@ -177,6 +179,7 @@ impl GimjiApp {
             s3_settings_expanded: false,
             message: None,
             editing_note_title: false,
+            collapsed_kanban_cards: HashSet::new(),
         }
     }
 
@@ -845,7 +848,9 @@ impl GimjiApp {
 
         let dirty = match &mut loaded.content {
             LoadedContent::Markdown(markdown) => editors::render_markdown(ui, markdown),
-            LoadedContent::Kanban(board) => editors::render_kanban(ui, board),
+            LoadedContent::Kanban(board) => {
+                editors::render_kanban(ui, board, &mut self.collapsed_kanban_cards)
+            }
             LoadedContent::Todo(todo) => editors::render_todo(ui, todo),
             LoadedContent::Calendar(calendar) => editors::render_calendar(ui, calendar),
         };
@@ -1137,6 +1142,7 @@ mod tests {
             s3_settings_expanded: false,
             message: None,
             editing_note_title: false,
+            collapsed_kanban_cards: std::collections::HashSet::new(),
         }
     }
 

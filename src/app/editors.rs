@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::Local;
 use eframe::egui;
 
@@ -39,7 +41,11 @@ pub(super) fn markdown_editor_desired_rows(markdown: &str) -> usize {
     markdown.lines().count().max(MARKDOWN_MIN_VISIBLE_ROWS)
 }
 
-pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool {
+pub(super) fn render_kanban(
+    ui: &mut egui::Ui,
+    board: &mut KanbanBoard,
+    collapsed_cards: &mut HashSet<String>,
+) -> bool {
     let mut dirty = false;
     let mut action = None;
 
@@ -99,76 +105,122 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
                                                 ui.set_width(KANBAN_CARD_TEXT_WIDTH);
                                                 let card = &mut board.columns[column_index].cards
                                                     [card_index];
-                                                if ui
-                                                    .add_sized(
-                                                        egui::vec2(
-                                                            KANBAN_CARD_TEXT_WIDTH,
-                                                            KANBAN_CARD_TEXT_HEIGHT,
-                                                        ),
-                                                        egui::TextEdit::multiline(&mut card.text)
-                                                            .desired_rows(3),
-                                                    )
-                                                    .changed()
-                                                {
-                                                    card.touch();
-                                                    dirty = true;
-                                                }
+                                                let card_id = card.id.clone();
+                                                let mut expanded =
+                                                    !collapsed_cards.contains(&card_id);
                                                 ui.horizontal(|ui| {
                                                     if ui
-                                                        .small_button("<")
-                                                        .on_hover_text("Move left")
+                                                        .small_button(if expanded {
+                                                            "v"
+                                                        } else {
+                                                            ">"
+                                                        })
+                                                        .on_hover_text(if expanded {
+                                                            "Hide details"
+                                                        } else {
+                                                            "Show details"
+                                                        })
                                                         .clicked()
                                                     {
-                                                        action = Some(KanbanAction::MoveColumn {
-                                                            column_index,
-                                                            card_index,
-                                                            delta: -1,
-                                                        });
+                                                        expanded = !expanded;
+                                                        if expanded {
+                                                            collapsed_cards.remove(&card_id);
+                                                        } else {
+                                                            collapsed_cards.insert(card_id.clone());
+                                                        }
                                                     }
                                                     if ui
-                                                        .small_button(">")
-                                                        .on_hover_text("Move right")
-                                                        .clicked()
+                                                        .add_sized(
+                                                            egui::vec2(ui.available_width(), 28.0),
+                                                            egui::TextEdit::singleline(
+                                                                &mut card.name,
+                                                            )
+                                                            .hint_text("Name"),
+                                                        )
+                                                        .changed()
                                                     {
-                                                        action = Some(KanbanAction::MoveColumn {
-                                                            column_index,
-                                                            card_index,
-                                                            delta: 1,
-                                                        });
-                                                    }
-                                                    if ui
-                                                        .small_button("Up")
-                                                        .on_hover_text("Move up")
-                                                        .clicked()
-                                                    {
-                                                        action = Some(KanbanAction::MoveRow {
-                                                            column_index,
-                                                            card_index,
-                                                            delta: -1,
-                                                        });
-                                                    }
-                                                    if ui
-                                                        .small_button("Dn")
-                                                        .on_hover_text("Move down")
-                                                        .clicked()
-                                                    {
-                                                        action = Some(KanbanAction::MoveRow {
-                                                            column_index,
-                                                            card_index,
-                                                            delta: 1,
-                                                        });
-                                                    }
-                                                    if ui
-                                                        .small_button("Del")
-                                                        .on_hover_text("Delete card")
-                                                        .clicked()
-                                                    {
-                                                        action = Some(KanbanAction::DeleteCard {
-                                                            column_index,
-                                                            card_index,
-                                                        });
+                                                        card.touch();
+                                                        dirty = true;
                                                     }
                                                 });
+                                                if expanded {
+                                                    if ui
+                                                        .add_sized(
+                                                            egui::vec2(
+                                                                KANBAN_CARD_TEXT_WIDTH,
+                                                                KANBAN_CARD_TEXT_HEIGHT,
+                                                            ),
+                                                            egui::TextEdit::multiline(
+                                                                &mut card.description,
+                                                            )
+                                                            .hint_text("Description")
+                                                            .desired_rows(3),
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        card.touch();
+                                                        dirty = true;
+                                                    }
+                                                    ui.horizontal(|ui| {
+                                                        if ui
+                                                            .small_button("<")
+                                                            .on_hover_text("Move left")
+                                                            .clicked()
+                                                        {
+                                                            action =
+                                                                Some(KanbanAction::MoveColumn {
+                                                                    column_index,
+                                                                    card_index,
+                                                                    delta: -1,
+                                                                });
+                                                        }
+                                                        if ui
+                                                            .small_button(">")
+                                                            .on_hover_text("Move right")
+                                                            .clicked()
+                                                        {
+                                                            action =
+                                                                Some(KanbanAction::MoveColumn {
+                                                                    column_index,
+                                                                    card_index,
+                                                                    delta: 1,
+                                                                });
+                                                        }
+                                                        if ui
+                                                            .small_button("Up")
+                                                            .on_hover_text("Move up")
+                                                            .clicked()
+                                                        {
+                                                            action = Some(KanbanAction::MoveRow {
+                                                                column_index,
+                                                                card_index,
+                                                                delta: -1,
+                                                            });
+                                                        }
+                                                        if ui
+                                                            .small_button("Dn")
+                                                            .on_hover_text("Move down")
+                                                            .clicked()
+                                                        {
+                                                            action = Some(KanbanAction::MoveRow {
+                                                                column_index,
+                                                                card_index,
+                                                                delta: 1,
+                                                            });
+                                                        }
+                                                        if ui
+                                                            .small_button("Del")
+                                                            .on_hover_text("Delete card")
+                                                            .clicked()
+                                                        {
+                                                            action =
+                                                                Some(KanbanAction::DeleteCard {
+                                                                    column_index,
+                                                                    card_index,
+                                                                });
+                                                        }
+                                                    });
+                                                }
                                             });
                                     }
                                 });

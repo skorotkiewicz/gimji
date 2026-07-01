@@ -39,18 +39,22 @@ impl KanbanColumn {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KanbanCard {
     pub id: String,
-    pub text: String,
+    #[serde(default, alias = "text")]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
 impl KanbanCard {
-    pub fn new(text: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>) -> Self {
         let now = timestamp();
 
         Self {
             id: new_id(),
-            text: text.into(),
+            name: name.into(),
+            description: String::new(),
             created_at: now.clone(),
             updated_at: now,
         }
@@ -58,5 +62,21 @@ impl KanbanCard {
 
     pub fn touch(&mut self) {
         self.updated_at = timestamp();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KanbanCard;
+
+    #[test]
+    fn card_reads_legacy_text_as_name() {
+        let card: KanbanCard = serde_json::from_str(
+            r#"{"id":"card-1","text":"Ship it","created_at":"2026-07-01","updated_at":"2026-07-01"}"#,
+        )
+        .expect("legacy kanban card");
+
+        assert_eq!(card.name, "Ship it");
+        assert_eq!(card.description, "");
     }
 }
