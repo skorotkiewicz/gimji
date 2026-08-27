@@ -305,6 +305,18 @@ impl GimjiApp {
             if ui
                 .add_sized(
                     [64.0, 18.0],
+                    egui::Button::new("Save")
+                        .small()
+                        .corner_radius(SIDEBAR_RADIUS),
+                )
+                .on_hover_text("Save S3 settings in this workspace")
+                .clicked()
+            {
+                self.save_s3_connection_settings();
+            }
+            if ui
+                .add_sized(
+                    [64.0, 18.0],
                     egui::Button::new("Test")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),

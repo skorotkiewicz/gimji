@@ -199,6 +199,8 @@ impl GimjiApp {
         match Workspace::open(&path) {
             Ok(workspace) => {
                 self.workspace = Some(workspace);
+                #[cfg(feature = "s3")]
+                self.load_workspace_s3_connection_settings();
                 self.loaded = None;
                 self.recent.add(path);
                 self.save_recent_workspaces();
@@ -215,6 +217,8 @@ impl GimjiApp {
         match Workspace::create(&path) {
             Ok(workspace) => {
                 self.workspace = Some(workspace);
+                #[cfg(feature = "s3")]
+                self.load_workspace_s3_connection_settings();
                 self.loaded = None;
                 self.recent.add(path);
                 self.save_recent_workspaces();
@@ -524,6 +528,44 @@ impl GimjiApp {
             prefix: self.s3_prefix.trim().to_owned(),
             access_key_id: self.s3_access_key_id.trim().to_owned(),
             secret_access_key: self.s3_secret_access_key.trim().to_owned(),
+        }
+    }
+
+    #[cfg(feature = "s3")]
+    fn load_workspace_s3_connection_settings(&mut self) {
+        let result = self
+            .workspace
+            .as_ref()
+            .map(S3ConnectionSettings::load_local)
+            .unwrap_or(Ok(None));
+        let settings = match result {
+            Ok(Some(settings)) => settings,
+            Ok(None) => initial_s3_connection_settings_from_environment(),
+            Err(error) => {
+                self.message = Some(format!("Failed to load local S3 settings: {error}"));
+                initial_s3_connection_settings_from_environment()
+            }
+        };
+
+        self.s3_endpoint_url = settings.endpoint_url;
+        self.s3_region = settings.region;
+        self.s3_bucket = settings.bucket;
+        self.s3_prefix = settings.prefix;
+        self.s3_access_key_id = settings.access_key_id;
+        self.s3_secret_access_key = settings.secret_access_key;
+        self.s3_connection_status = S3ConnectionStatus::Idle;
+    }
+
+    #[cfg(feature = "s3")]
+    fn save_s3_connection_settings(&mut self) {
+        let Some(workspace) = self.workspace.as_ref() else {
+            self.message = Some("Open a workspace before saving S3 settings.".to_owned());
+            return;
+        };
+
+        match self.s3_connection_settings().save_local(workspace) {
+            Ok(()) => self.message = Some("S3 settings saved locally.".to_owned()),
+            Err(error) => self.message = Some(error.to_string()),
         }
     }
 
@@ -1037,6 +1079,8 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::models::{Tab, TabType};
+    #[cfg(feature = "s3")]
+    use crate::storage::S3ConnectionSettings;
     use crate::storage::Workspace;
 
     use super::editors::{
@@ -1261,6 +1305,27 @@ mod tests {
         assert_eq!(settings.prefix, "projects/gimji-main");
         assert_eq!(settings.access_key_id, "minioadmin");
         assert_eq!(settings.secret_access_key, "minioadmin");
+    }
+
+    #[cfg(feature = "s3")]
+    #[test]
+    fn workspace_s3_settings_override_form_defaults() {
+        let temp_dir = tempfile::tempdir().expect("temp workspace");
+        let workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let settings = S3ConnectionSettings {
+            endpoint_url: "http://localhost:9000".to_owned(),
+            region: "local-region".to_owned(),
+            bucket: "local-bucket".to_owned(),
+            prefix: "local-prefix".to_owned(),
+            access_key_id: "local-access".to_owned(),
+            secret_access_key: "local-secret".to_owned(),
+        };
+        settings.save_local(&workspace).expect("save settings");
+        let mut app = app_with_workspace(workspace);
+
+        app.load_workspace_s3_connection_settings();
+
+        assert_eq!(app.s3_connection_settings(), settings);
     }
 
     #[cfg(feature = "s3")]

@@ -9,7 +9,10 @@ A workspace is a normal directory with these Gimji-managed paths:
 - `config.json`: workspace metadata and note/tab index.
 - `content/`: tab content files referenced by `config.json`.
 - `backups/`: local backup directory reserved by the workspace initializer.
-- `.app/`: app-owned directory reserved by the workspace initializer.
+- `.app/`: app-owned local files, including optional S3 settings in `s3.json`.
+
+`.app/s3.json` can contain plaintext S3 credentials. Gimji keeps it local and does
+not include it in S3 backups.
 
 All tab content paths in `config.json` must be relative paths under `content/`.
 Absolute paths, parent-directory components, and non-`content/` roots are invalid.

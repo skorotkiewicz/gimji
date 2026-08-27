@@ -12,17 +12,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::AppConfig;
 use crate::storage::Workspace;
-use crate::storage::atomic::atomic_write;
+use crate::storage::atomic::{atomic_write, atomic_write_private};
 use crate::storage::validate_relative_content_path;
 
 const BACKUP_MANIFEST_KEY: &str = ".gimji/backup-manifest.json";
 const BACKUP_MANIFEST_VERSION: u32 = 1;
+const LOCAL_SETTINGS_PATH: &str = ".app/s3.json";
 
 fn s3_service_error(operation: &str, key: &str, source: impl std::fmt::Display) -> AppError {
     AppError::S3ConnectionFailed(format!("{operation} failed for '{key}': {source}"))
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct S3ConnectionSettings {
     pub endpoint_url: String,
     pub region: String,
@@ -33,6 +35,25 @@ pub struct S3ConnectionSettings {
 }
 
 impl S3ConnectionSettings {
+    pub fn load_local(workspace: &Workspace) -> Result<Option<Self>> {
+        let path = workspace.root().join(LOCAL_SETTINGS_PATH);
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let text = fs::read_to_string(&path).map_err(|source| AppError::io(&path, source))?;
+        serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|source| AppError::json(&path, source))
+    }
+
+    pub fn save_local(&self, workspace: &Workspace) -> Result<()> {
+        let path = workspace.root().join(LOCAL_SETTINGS_PATH);
+        let bytes =
+            serde_json::to_vec_pretty(self).map_err(|source| AppError::json(&path, source))?;
+        atomic_write_private(&path, &bytes)
+    }
+
     pub fn validate_for_connection(&self) -> Result<()> {
         require_field("endpoint URL", &self.endpoint_url)?;
         require_field("region", &self.region)?;
@@ -504,6 +525,8 @@ mod tests {
         fs::write(root.join("config.json"), "config body").expect("write config");
         fs::create_dir_all(root.join("content")).expect("create content dir");
         fs::write(root.join("content/project.md"), "project body").expect("write content");
+        fs::create_dir_all(root.join(".app")).expect("create local app dir");
+        fs::write(root.join(LOCAL_SETTINGS_PATH), "local secret").expect("write local settings");
         let files = workspace_backup_files(root).expect("backup files");
 
         let manifest = backup_manifest_for_files(&files).expect("manifest");
@@ -516,6 +539,39 @@ mod tests {
         assert!(manifest.objects.iter().any(|object| {
             object.key == "content/project.md" && object.checksum == checksum_hex(b"project body")
         }));
+    }
+
+    #[test]
+    fn local_settings_round_trip_with_credentials() {
+        let temp_dir = tempfile::tempdir().expect("temporary workspace");
+        let workspace = Workspace::create(temp_dir.path()).expect("workspace");
+        let settings = S3ConnectionSettings {
+            endpoint_url: "http://localhost:9000".to_owned(),
+            region: "us-east-1".to_owned(),
+            bucket: "storage".to_owned(),
+            prefix: "gimji".to_owned(),
+            access_key_id: "access".to_owned(),
+            secret_access_key: "secret".to_owned(),
+        };
+
+        settings
+            .save_local(&workspace)
+            .expect("save local settings");
+
+        assert_eq!(
+            S3ConnectionSettings::load_local(&workspace).expect("load local settings"),
+            Some(settings)
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = fs::metadata(workspace.root().join(LOCAL_SETTINGS_PATH))
+                .expect("settings metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
     }
 
     #[test]
