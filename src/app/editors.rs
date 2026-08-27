@@ -9,6 +9,7 @@ pub(super) const KANBAN_COLUMN_WIDTH: f32 = 280.0;
 pub(super) const KANBAN_CARD_TEXT_WIDTH: f32 = 250.0;
 pub(super) const KANBAN_CARD_TEXT_HEIGHT: f32 = 76.0;
 const MARKDOWN_MIN_VISIBLE_ROWS: usize = 24;
+const TODO_DUPLICATE_STROKE: egui::Color32 = egui::Color32::from_rgb(232, 116, 116);
 
 pub(super) fn render_markdown(ui: &mut egui::Ui, markdown: &mut String) -> bool {
     panel_frame(SURFACE_LOW)
@@ -258,6 +259,7 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
         }
 
         let focus_index = focus_new_item.then(|| todo.items.len().saturating_sub(1));
+        let duplicates = duplicate_todo_items(&todo.items);
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (index, item) in todo.items.iter_mut().enumerate() {
                 egui::Frame::new()
@@ -271,16 +273,29 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
                                 item.touch();
                                 dirty = true;
                             }
-                            let response = ui.add_sized(
-                                [ui.available_width() - 50.0, 28.0],
-                                egui::TextEdit::singleline(&mut item.text).hint_text("Todo"),
-                            );
+                            let response = ui
+                                .scope(|ui| {
+                                    if duplicates[index] {
+                                        let stroke = egui::Stroke::new(1.0, TODO_DUPLICATE_STROKE);
+                                        ui.visuals_mut().widgets.inactive.bg_stroke = stroke;
+                                        ui.visuals_mut().widgets.hovered.bg_stroke = stroke;
+                                        ui.visuals_mut().widgets.active.bg_stroke = stroke;
+                                        ui.visuals_mut().selection.stroke = stroke;
+                                    }
+                                    ui.add_sized(
+                                        [ui.available_width() - 50.0, 28.0],
+                                        egui::TextEdit::singleline(&mut item.text)
+                                            .hint_text("Todo"),
+                                    )
+                                })
+                                .inner;
                             if focus_index == Some(index) {
                                 response.request_focus();
                             }
                             if response.changed() {
                                 item.touch();
                                 dirty = true;
+                                ui.ctx().request_repaint();
                             }
                             if ui
                                 .small_button("Del")
@@ -405,6 +420,21 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
     dirty
 }
 
+fn duplicate_todo_items(items: &[TodoItem]) -> Vec<bool> {
+    // ponytail: Todo lists are small; replace this O(n²) scan with counts if that changes.
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            !item.text.is_empty()
+                && items
+                    .iter()
+                    .enumerate()
+                    .any(|(other_index, other)| index != other_index && item.text == other.text)
+        })
+        .collect()
+}
+
 pub(super) fn new_todo_item() -> TodoItem {
     TodoItem::new("")
 }
@@ -498,5 +528,20 @@ fn apply_kanban_action(board: &mut KanbanBoard, action: KanbanAction) {
             let dest = destination as usize;
             column.cards.swap(card_index, dest);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TodoItem, duplicate_todo_items};
+
+    #[test]
+    fn todo_duplicates_require_exact_non_empty_text() {
+        let items = ["Ship", "Ship", "ship", "Ship ", "", ""].map(TodoItem::new);
+
+        assert_eq!(
+            duplicate_todo_items(&items),
+            [true, true, false, false, false, false]
+        );
     }
 }
