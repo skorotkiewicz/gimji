@@ -33,7 +33,7 @@ impl GimjiApp {
                 egui::Frame::new()
                     .fill(SIDEBAR_BG)
                     .inner_margin(egui::Margin::symmetric(14, 16))
-                    .stroke(egui::Stroke::new(1.0, STROKE)),
+                    .stroke(egui::Stroke::new(1.0_f32, STROKE)),
             )
             .show_inside(root_ui, |ui| {
                 ui.vertical(|ui| {

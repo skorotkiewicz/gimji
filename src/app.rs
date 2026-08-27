@@ -1019,7 +1019,7 @@ fn panel_frame(fill: egui::Color32) -> egui::Frame {
         .fill(fill)
         .inner_margin(egui::Margin::same(14))
         .corner_radius(6)
-        .stroke(egui::Stroke::new(1.0, STROKE))
+        .stroke(egui::Stroke::new(1.0_f32, STROKE))
 }
 
 fn status_color(status: &SaveStatus) -> egui::Color32 {

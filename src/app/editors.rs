@@ -56,7 +56,7 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
                                 .fill(SURFACE_BG)
                                 .inner_margin(egui::Margin::same(10))
                                 .corner_radius(6)
-                                .stroke(egui::Stroke::new(1.0, STROKE))
+                                .stroke(egui::Stroke::new(1.0_f32, STROKE))
                                 .show(ui, |ui| {
                                     ui.set_width(KANBAN_COLUMN_WIDTH);
                                     ui.horizontal(|ui| {
@@ -95,7 +95,7 @@ pub(super) fn render_kanban(ui: &mut egui::Ui, board: &mut KanbanBoard) -> bool 
                                             .fill(SURFACE_LOW)
                                             .inner_margin(egui::Margin::same(8))
                                             .corner_radius(4)
-                                            .stroke(egui::Stroke::new(1.0, STROKE))
+                                            .stroke(egui::Stroke::new(1.0_f32, STROKE))
                                             .show(ui, |ui| {
                                                 ui.set_width(KANBAN_CARD_TEXT_WIDTH);
                                                 let card = &mut board.columns[column_index].cards
@@ -266,7 +266,7 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
                     .fill(SURFACE_BG)
                     .inner_margin(egui::Margin::symmetric(10, 8))
                     .corner_radius(4)
-                    .stroke(egui::Stroke::new(1.0, STROKE))
+                    .stroke(egui::Stroke::new(1.0_f32, STROKE))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             if ui.checkbox(&mut item.done, "").changed() {
@@ -276,7 +276,8 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList) -> bool {
                             let response = ui
                                 .scope(|ui| {
                                     if duplicates[index] {
-                                        let stroke = egui::Stroke::new(1.0, TODO_DUPLICATE_STROKE);
+                                        let stroke =
+                                            egui::Stroke::new(1.0_f32, TODO_DUPLICATE_STROKE);
                                         ui.visuals_mut().widgets.inactive.bg_stroke = stroke;
                                         ui.visuals_mut().widgets.hovered.bg_stroke = stroke;
                                         ui.visuals_mut().widgets.active.bg_stroke = stroke;
@@ -359,7 +360,7 @@ pub(super) fn render_calendar(ui: &mut egui::Ui, calendar: &mut CalendarData) ->
                     .fill(SURFACE_BG)
                     .inner_margin(egui::Margin::same(10))
                     .corner_radius(4)
-                    .stroke(egui::Stroke::new(1.0, STROKE))
+                    .stroke(egui::Stroke::new(1.0_f32, STROKE))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Date").small().color(TEXT_MUTED));
