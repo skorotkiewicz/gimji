@@ -382,26 +382,76 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
                             // "#" render identically hovered or not and nothing shifts
                             let idle = ui.visuals().widgets.inactive;
                             ui.visuals_mut().widgets.hovered = idle;
-                            ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+                            // ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
 
                             for (tag_index, tag) in item.tags.iter().enumerate() {
                                 let color = tag_color(tag);
+                                let font = egui::FontId::proportional(12.0);
                                 let chip = egui::Button::new(
-                                    egui::RichText::new(format!("#{tag} x")).color(color),
+                                    egui::RichText::new(format!("#{tag} x"))
+                                        .font(font)
+                                        .color(color),
                                 )
                                 .small()
-                                // ponytail: keep the frame painted while idle so hover
-                                // doesn't pop it in
-                                .frame_when_inactive(true)
                                 .fill(color.gamma_multiply(0.15))
                                 .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.4)))
                                 .corner_radius(6);
-                                if ui.add(chip).clicked() {
+                                if ui.add(chip).on_hover_text("Remove tag").clicked() {
                                     remove_tag_index = Some(tag_index);
                                 }
                             }
 
-                            if ui.small_button("#").clicked() {
+                            // for (tag_index, tag) in item.tags.iter().enumerate() {
+                            //     let color = tag_color(tag);
+                            //     // ponytail: hand-painted chip - keeps the tag color and
+                            //     // animates on hover (tint 0.15 -> 0.35, stroke 0.4 -> 0.7);
+                            //     let font = egui::FontId::proportional(10.0);
+                            //     let galley =
+                            //         ui.painter()
+                            //             .layout_no_wrap(format!("#{tag} x"), font, color);
+                            //     let pad = 6.0;
+                            //     let (rect, response) = ui.allocate_exact_size(
+                            //         galley.size() + egui::vec2(pad * 2.0, pad),
+                            //         egui::Sense::click(),
+                            //     );
+                            //     let hovered = response.hovered();
+                            //     let painter = ui.painter();
+                            //     painter.rect_filled(
+                            //         rect,
+                            //         6.0,
+                            //         color.gamma_multiply(if hovered { 0.35 } else { 0.15 }),
+                            //     );
+                            //     painter.rect_stroke(
+                            //         rect,
+                            //         6.0,
+                            //         egui::Stroke::new(
+                            //             1.0_f32,
+                            //             color.gamma_multiply(if hovered { 0.7 } else { 0.4 }),
+                            //         ),
+                            //         egui::StrokeKind::Inside,
+                            //     );
+                            //     painter.galley(
+                            //         egui::pos2(
+                            //             rect.left() + pad,
+                            //             rect.center().y - galley.size().y * 0.5,
+                            //         ),
+                            //         galley,
+                            //         color,
+                            //     );
+                            //     if response.on_hover_text("Remove tag").clicked() {
+                            //         remove_tag_index = Some(tag_index);
+                            //     }
+                            // }
+
+                            if ui
+                                .small_button("#")
+                                .on_hover_text(if tag_editor_open {
+                                    "Close tag editor"
+                                } else {
+                                    "Edit tags"
+                                })
+                                .clicked()
+                            {
                                 focus_tag_input = !tag_editor_open;
                                 open_tag_editor = if tag_editor_open {
                                     None

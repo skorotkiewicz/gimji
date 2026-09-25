@@ -985,6 +985,8 @@ fn configure_theme(context: &egui::Context) {
     style.visuals.widgets.inactive.bg_fill = SURFACE_LOW;
     style.visuals.widgets.hovered.bg_fill = SURFACE_HOVER;
     style.visuals.widgets.active.bg_fill = ACTIVE_BG;
+    // ponytail: egui shrinks button margins by the state stroke width
+    // style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::TRANSPARENT);
     style.visuals.selection.bg_fill = ACTIVE_BG;
     style.visuals.hyperlink_color = ACCENT;
     context.set_global_style(style);
