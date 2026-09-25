@@ -228,10 +228,10 @@ impl GimjiApp {
         }
     }
 
-    fn remove_recent_workspace(&mut self, path: &Path) {
-        if self.recent.remove(path) {
-            self.save_recent_workspaces();
-        }
+    fn remove_recent_workspace(&mut self, path: &Path) -> bool {
+        // ponytail: caller persists, otherwise unit tests clobber the user's
+        // real recent_workspaces.json every `cargo test`
+        self.recent.remove(path)
     }
 
     fn save_recent_workspaces(&self) {
@@ -888,7 +888,7 @@ impl GimjiApp {
         let dirty = match &mut loaded.content {
             LoadedContent::Markdown(markdown) => editors::render_markdown(ui, markdown),
             LoadedContent::Kanban(board) => editors::render_kanban(ui, board),
-            LoadedContent::Todo(todo) => editors::render_todo(ui, todo),
+            LoadedContent::Todo(todo) => editors::render_todo(ui, todo, &loaded.tab_id),
             LoadedContent::Calendar(calendar) => editors::render_calendar(ui, calendar),
         };
 
@@ -985,6 +985,8 @@ fn configure_theme(context: &egui::Context) {
     style.visuals.widgets.inactive.bg_fill = SURFACE_LOW;
     style.visuals.widgets.hovered.bg_fill = SURFACE_HOVER;
     style.visuals.widgets.active.bg_fill = ACTIVE_BG;
+    // ponytail: egui shrinks button margins by the state stroke width
+    // style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::TRANSPARENT);
     style.visuals.selection.bg_fill = ACTIVE_BG;
     style.visuals.hyperlink_color = ACCENT;
     context.set_global_style(style);
@@ -1259,6 +1261,7 @@ mod tests {
 
         assert_eq!(todo.text, "");
         assert!(!todo.done);
+        assert!(todo.tags.is_empty());
         assert_eq!(event.date, "2026-06-15");
         assert_eq!(event.title, "");
         assert_eq!(event.description, "");
