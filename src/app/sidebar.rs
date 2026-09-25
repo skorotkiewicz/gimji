@@ -41,6 +41,11 @@ impl GimjiApp {
 
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Gimji").size(21.0).strong());
+                        ui.label(
+                            egui::RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                                .small()
+                                .color(TEXT_MUTED),
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if close_icon_button(ui).clicked() {
                                 ui.send_viewport_cmd(egui::ViewportCommand::Close);
