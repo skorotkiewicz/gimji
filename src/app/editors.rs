@@ -285,7 +285,11 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut tag_filter, String::new(), "All tags");
                         for tag in &all_tags {
-                            ui.selectable_value(&mut tag_filter, tag.clone(), tag);
+                            ui.selectable_value(
+                                &mut tag_filter,
+                                tag.clone(),
+                                egui::RichText::new(tag).color(tag_color(tag)),
+                            );
                         }
                     });
             });
@@ -366,11 +370,17 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
                         ui.horizontal_wrapped(|ui| {
                             ui.label(egui::RichText::new("Tags").small().color(TEXT_MUTED));
                             for (tag_index, tag) in item.tags.iter().enumerate() {
-                                if ui
-                                    .small_button(format!("#{tag} x"))
-                                    .on_hover_text("Remove tag")
-                                    .clicked()
-                                {
+                                let color = tag_color(tag);
+                                let chip = egui::Button::new(
+                                    egui::RichText::new(format!("#{tag} x"))
+                                        .small()
+                                        .color(color),
+                                )
+                                .small()
+                                .fill(color.gamma_multiply(0.15))
+                                .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.4)))
+                                .corner_radius(6);
+                                if ui.add(chip).on_hover_text("Remove tag").clicked() {
                                     remove_tag_index = Some(tag_index);
                                 }
                             }
@@ -553,6 +563,31 @@ fn todo_matches_tag(item: &TodoItem, tag: &str) -> bool {
             .any(|item_tag| item_tag.eq_ignore_ascii_case(tag))
 }
 
+fn tag_color(tag: &str) -> egui::Color32 {
+    const TAG_COLORS: [egui::Color32; 13] = [
+        egui::Color32::from_rgb(239, 68, 68),  // red
+        egui::Color32::from_rgb(249, 115, 22), // orange
+        egui::Color32::from_rgb(245, 158, 11), // amber
+        egui::Color32::from_rgb(234, 179, 8),  // yellow
+        egui::Color32::from_rgb(132, 204, 22), // lime
+        egui::Color32::from_rgb(34, 197, 94),  // green
+        egui::Color32::from_rgb(16, 185, 129), // emerald
+        egui::Color32::from_rgb(20, 184, 166), // teal
+        egui::Color32::from_rgb(6, 182, 212),  // cyan
+        egui::Color32::from_rgb(14, 165, 233), // sky
+        egui::Color32::from_rgb(59, 130, 246), // blue
+        egui::Color32::from_rgb(236, 72, 153), // pink
+        egui::Color32::from_rgb(244, 63, 94),  // rose
+    ];
+
+    // Color hash: hash = char + (hash << 5) - hash, case-insensitive.
+    let hash = tag
+        .chars()
+        .map(|ch| ch.to_ascii_lowercase() as i32)
+        .fold(0_i32, |hash, ch| hash.wrapping_mul(31).wrapping_add(ch));
+    TAG_COLORS[hash.unsigned_abs() as usize % TAG_COLORS.len()]
+}
+
 pub(super) fn new_todo_item() -> TodoItem {
     TodoItem::new("")
 }
@@ -674,5 +709,10 @@ mod tests {
         assert!(todo_matches_tag(&item, "Work"));
         assert!(todo_matches_tag(&item, ""));
         assert!(!todo_matches_tag(&item, "personal"));
+    }
+
+    #[test]
+    fn tag_color_is_stable_across_tag_case() {
+        assert_eq!(super::tag_color("Work"), super::tag_color("WORK"));
     }
 }
