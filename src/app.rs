@@ -228,10 +228,10 @@ impl GimjiApp {
         }
     }
 
-    fn remove_recent_workspace(&mut self, path: &Path) {
-        if self.recent.remove(path) {
-            self.save_recent_workspaces();
-        }
+    fn remove_recent_workspace(&mut self, path: &Path) -> bool {
+        // ponytail: caller persists, otherwise unit tests clobber the user's
+        // real recent_workspaces.json every `cargo test`
+        self.recent.remove(path)
     }
 
     fn save_recent_workspaces(&self) {

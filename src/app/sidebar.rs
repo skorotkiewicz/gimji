@@ -94,7 +94,9 @@ impl GimjiApp {
                             response.context_menu(|ui| {
                                 ui.set_min_width(120.0);
                                 if ui.button("Delete").clicked() {
-                                    self.remove_recent_workspace(&path);
+                                    if self.remove_recent_workspace(&path) {
+                                        self.save_recent_workspaces();
+                                    }
                                     ui.close();
                                 }
                             });

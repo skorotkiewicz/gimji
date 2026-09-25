@@ -246,6 +246,11 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
     all_tags.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
 
     let filter_id = ui.make_persistent_id(("todo-tag-filter", tab_id));
+    let tag_editor_id = ui.make_persistent_id(("todo-tag-editor-open", tab_id));
+    let mut open_tag_editor = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<Option<egui::Id>>(tag_editor_id))
+        .flatten();
     let mut tag_filter = ui
         .ctx()
         .data_mut(|data| data.get_temp::<String>(filter_id).unwrap_or_default());
@@ -367,40 +372,68 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
                             }
                         });
 
-                        let draft_id = ui.make_persistent_id(("todo-tag-draft", item.id.as_str()));
-                        let mut tag_draft = ui
-                            .ctx()
-                            .data_mut(|data| data.get_temp::<String>(draft_id).unwrap_or_default());
                         let mut remove_tag_index = None;
+                        let item_tag_editor_id =
+                            ui.make_persistent_id(("todo-tag-editor", item.id.as_str()));
+                        let tag_editor_open = open_tag_editor == Some(item_tag_editor_id);
+                        let mut focus_tag_input = false;
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(egui::RichText::new("Tags").small().color(TEXT_MUTED));
+                            // ponytail: pin the hover state to the idle one so chips and
+                            // "#" render identically hovered or not and nothing shifts
+                            let idle = ui.visuals().widgets.inactive;
+                            ui.visuals_mut().widgets.hovered = idle;
+                            ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+
                             for (tag_index, tag) in item.tags.iter().enumerate() {
                                 let color = tag_color(tag);
                                 let chip = egui::Button::new(
-                                    egui::RichText::new(format!("#{tag} x"))
-                                        .small()
-                                        .color(color),
+                                    egui::RichText::new(format!("#{tag} x")).color(color),
                                 )
                                 .small()
+                                // ponytail: keep the frame painted while idle so hover
+                                // doesn't pop it in
+                                .frame_when_inactive(true)
                                 .fill(color.gamma_multiply(0.15))
                                 .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.4)))
                                 .corner_radius(6);
-                                if ui.add(chip).on_hover_text("Remove tag").clicked() {
+                                if ui.add(chip).clicked() {
                                     remove_tag_index = Some(tag_index);
                                 }
                             }
 
-                            let response = ui.add_sized(
-                                [120.0, 24.0],
-                                egui::TextEdit::singleline(&mut tag_draft).hint_text("Add tag"),
-                            );
-                            let enter_pressed = response.lost_focus()
-                                && ui.input(|input| input.key_pressed(egui::Key::Enter));
-                            let add_clicked =
-                                ui.small_button("Add").on_hover_text("Add tag").clicked();
-                            if (enter_pressed || add_clicked) && add_todo_tag(item, &tag_draft) {
-                                tag_draft.clear();
-                                dirty = true;
+                            if ui.small_button("#").clicked() {
+                                focus_tag_input = !tag_editor_open;
+                                open_tag_editor = if tag_editor_open {
+                                    None
+                                } else {
+                                    Some(item_tag_editor_id)
+                                };
+                            }
+
+                            if tag_editor_open {
+                                let draft_id =
+                                    ui.make_persistent_id(("todo-tag-draft", item.id.as_str()));
+                                let mut tag_draft = ui.ctx().data_mut(|data| {
+                                    data.get_temp::<String>(draft_id).unwrap_or_default()
+                                });
+                                let response = ui.add_sized(
+                                    [120.0, 24.0],
+                                    egui::TextEdit::singleline(&mut tag_draft).hint_text("Add tag"),
+                                );
+                                if focus_tag_input {
+                                    response.request_focus();
+                                }
+                                let enter_pressed = response.lost_focus()
+                                    && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                                let add_clicked =
+                                    ui.small_button("Add").on_hover_text("Add tag").clicked();
+                                if (enter_pressed || add_clicked) && add_todo_tag(item, &tag_draft)
+                                {
+                                    tag_draft.clear();
+                                    dirty = true;
+                                }
+                                ui.ctx()
+                                    .data_mut(|data| data.insert_temp(draft_id, tag_draft));
                             }
                         });
 
@@ -409,8 +442,6 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
                             item.touch();
                             dirty = true;
                         }
-                        ui.ctx()
-                            .data_mut(|data| data.insert_temp(draft_id, tag_draft));
                     });
                 ui.add_space(6.0);
             }
@@ -419,6 +450,8 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
 
     ui.ctx()
         .data_mut(|data| data.insert_temp(filter_id, tag_filter));
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(tag_editor_id, open_tag_editor));
 
     if let Some(index) = delete_index {
         todo.items.remove(index);
