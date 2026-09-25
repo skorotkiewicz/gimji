@@ -303,7 +303,7 @@ impl GimjiApp {
         ui.horizontal(|ui| {
             if ui
                 .add_sized(
-                    [button_width, 24.0],
+                    [button_width, 18.0],
                     egui::Button::new("Save")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
@@ -315,7 +315,7 @@ impl GimjiApp {
             }
             if ui
                 .add_sized(
-                    [button_width, 24.0],
+                    [button_width, 18.0],
                     egui::Button::new("Test")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
