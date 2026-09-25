@@ -277,6 +277,11 @@ pub(super) fn render_todo(ui: &mut egui::Ui, todo: &mut TodoList, tab_id: &str) 
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Filter").small().color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt(filter_id)
+                    // ponytail: cap the popup at ~5 rows, then it scrolls
+                    .height(
+                        all_tags.len().min(5) as f32
+                            * (ui.spacing().interact_size.y + ui.spacing().item_spacing.y),
+                    )
                     .selected_text(if tag_filter.is_empty() {
                         "All tags"
                     } else {
