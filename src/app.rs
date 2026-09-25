@@ -888,7 +888,7 @@ impl GimjiApp {
         let dirty = match &mut loaded.content {
             LoadedContent::Markdown(markdown) => editors::render_markdown(ui, markdown),
             LoadedContent::Kanban(board) => editors::render_kanban(ui, board),
-            LoadedContent::Todo(todo) => editors::render_todo(ui, todo),
+            LoadedContent::Todo(todo) => editors::render_todo(ui, todo, &loaded.tab_id),
             LoadedContent::Calendar(calendar) => editors::render_calendar(ui, calendar),
         };
 
@@ -1259,6 +1259,7 @@ mod tests {
 
         assert_eq!(todo.text, "");
         assert!(!todo.done);
+        assert!(todo.tags.is_empty());
         assert_eq!(event.date, "2026-06-15");
         assert_eq!(event.title, "");
         assert_eq!(event.description, "");
