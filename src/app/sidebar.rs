@@ -260,12 +260,7 @@ impl GimjiApp {
 
     #[cfg(feature = "s3")]
     pub(super) fn render_s3_section(&mut self, ui: &mut egui::Ui) {
-        let label = if self.s3_settings_expanded {
-            "S3 v"
-        } else {
-            "S3 >"
-        };
-        if sidebar_row(ui, label, self.s3_settings_expanded).clicked() {
+        if s3_section_header(ui, self.s3_settings_expanded, &self.s3_connection_status).clicked() {
             self.toggle_s3_settings();
         }
 
@@ -279,10 +274,12 @@ impl GimjiApp {
         sidebar_text_field(ui, &mut self.s3_prefix, "Prefix", false);
         sidebar_text_field(ui, &mut self.s3_access_key_id, "Access key", false);
         sidebar_text_field(ui, &mut self.s3_secret_access_key, "Secret key", true);
+        ui.add_space(4.0);
+        let button_width = (ui.available_width() - 6.0) / 2.0;
         ui.horizontal(|ui| {
             if ui
                 .add_sized(
-                    [74.0, 24.0],
+                    [button_width, 24.0],
                     egui::Button::new("Backup")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
@@ -293,7 +290,7 @@ impl GimjiApp {
             }
             if ui
                 .add_sized(
-                    [76.0, 24.0],
+                    [button_width, 24.0],
                     egui::Button::new("Restore")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
@@ -306,7 +303,7 @@ impl GimjiApp {
         ui.horizontal(|ui| {
             if ui
                 .add_sized(
-                    [64.0, 18.0],
+                    [button_width, 24.0],
                     egui::Button::new("Save")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
@@ -318,7 +315,7 @@ impl GimjiApp {
             }
             if ui
                 .add_sized(
-                    [64.0, 18.0],
+                    [button_width, 24.0],
                     egui::Button::new("Test")
                         .small()
                         .corner_radius(SIDEBAR_RADIUS),
@@ -408,6 +405,70 @@ fn sidebar_row(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response
             text_color,
         );
     }
+
+    response
+}
+
+#[cfg(feature = "s3")]
+fn s3_section_header(
+    ui: &mut egui::Ui,
+    expanded: bool,
+    status: &S3ConnectionStatus,
+) -> egui::Response {
+    let desired_size = egui::vec2(ui.available_width(), SIDEBAR_ROW_HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            ui.is_enabled(),
+            expanded,
+            "S3",
+        )
+    });
+
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+
+    let painter = ui.painter();
+    if response.hovered() {
+        painter.rect_filled(rect, SIDEBAR_RADIUS, SURFACE_HOVER);
+    }
+
+    painter.circle_filled(
+        egui::pos2(rect.left() + 8.0, rect.center().y),
+        3.0,
+        s3_connection_status_color(status),
+    );
+
+    painter.text(
+        egui::pos2(rect.left() + 18.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        "S3",
+        egui::FontId::proportional(14.0),
+        ui.visuals().text_color(),
+    );
+
+    // Chevron: points right when collapsed, down when expanded.
+    let center = egui::pos2(rect.right() - 14.0, rect.center().y);
+    let points = if expanded {
+        vec![
+            center + egui::vec2(-3.5, -2.0),
+            center + egui::vec2(3.5, -2.0),
+            center + egui::vec2(0.0, 3.0),
+        ]
+    } else {
+        vec![
+            center + egui::vec2(-2.0, -3.5),
+            center + egui::vec2(3.0, 0.0),
+            center + egui::vec2(-2.0, 3.5),
+        ]
+    };
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        TEXT_MUTED,
+        egui::Stroke::NONE,
+    ));
 
     response
 }
