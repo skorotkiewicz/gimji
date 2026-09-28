@@ -3,9 +3,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::Result;
 use crate::errors::AppError;
-use crate::models::{
-    AppConfig, CalendarData, KanbanBoard, MarkdownContent, Note, Tab, TabType, TodoList,
-};
+use crate::models::{AppConfig, CalendarData, KanbanBoard, Note, Tab, TabType, TodoList};
 use crate::storage::atomic::atomic_write;
 
 const CONFIG_FILE: &str = "config.json";
@@ -258,7 +256,7 @@ impl Workspace {
         self.save_config()
     }
 
-    pub fn save_markdown_content(&self, tab_id: &str, content: &MarkdownContent) -> Result<()> {
+    pub fn save_markdown_content(&self, tab_id: &str, content: &str) -> Result<()> {
         let tab = self.find_tab(tab_id)?;
         if tab.tab_type != TabType::Markdown {
             return Err(AppError::WrongContentType {
@@ -302,7 +300,7 @@ impl Workspace {
         self.write_json_content(tab, calendar)
     }
 
-    pub fn load_markdown_content(&self, tab_id: &str) -> Result<MarkdownContent> {
+    pub fn load_markdown_content(&self, tab_id: &str) -> Result<String> {
         let tab = self.find_tab(tab_id)?;
         if tab.tab_type != TabType::Markdown {
             return Err(AppError::WrongContentType {

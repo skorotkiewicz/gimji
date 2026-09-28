@@ -5,12 +5,13 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use crate::models::{CalendarData, KanbanBoard, MarkdownContent, TabType, TodoList};
+use crate::models::{CalendarData, KanbanBoard, TabType, TodoList};
 #[cfg(feature = "s3")]
 use crate::storage::S3ConnectionSettings;
 use crate::storage::{DeleteOptions, Workspace};
 
 mod editors;
+mod markdown;
 mod recent;
 mod sidebar;
 mod tabs;
@@ -886,7 +887,7 @@ impl GimjiApp {
         };
 
         let dirty = match &mut loaded.content {
-            LoadedContent::Markdown(markdown) => editors::render_markdown(ui, markdown),
+            LoadedContent::Markdown(markdown) => markdown::render_markdown(ui, markdown),
             LoadedContent::Kanban(board) => editors::render_kanban(ui, board),
             LoadedContent::Todo(todo) => editors::render_todo(ui, todo, &loaded.tab_id),
             LoadedContent::Calendar(calendar) => editors::render_calendar(ui, calendar),
@@ -908,7 +909,7 @@ struct LoadedTab {
 
 #[derive(Debug, PartialEq)]
 enum LoadedContent {
-    Markdown(MarkdownContent),
+    Markdown(String),
     Kanban(KanbanBoard),
     Todo(TodoList),
     Calendar(CalendarData),
@@ -1088,8 +1089,9 @@ mod tests {
     use super::editors::{
         KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
         kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
-        kanban_scroll_axes, markdown_editor_desired_rows, new_calendar_event, new_todo_item,
+        kanban_scroll_axes, new_calendar_event, new_todo_item,
     };
+    use super::markdown::markdown_editor_desired_rows;
     #[cfg(feature = "s3")]
     use super::{ConfirmAction, S3ConnectionStatus, initial_s3_connection_settings};
     use super::{
@@ -1130,7 +1132,7 @@ mod tests {
             .to_owned();
 
         workspace
-            .save_markdown_content(&tab_id, &"# Selected project".to_owned())
+            .save_markdown_content(&tab_id, "# Selected project")
             .expect("save selected content");
 
         let selection =

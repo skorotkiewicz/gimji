@@ -27,7 +27,7 @@ fn workspace_round_trips_metadata_and_tab_content_separately() {
         .expect("add calendar tab");
 
     workspace
-        .save_markdown_content(&markdown_tab_id, &"# Secret markdown body".to_owned())
+        .save_markdown_content(&markdown_tab_id, "# Secret markdown body")
         .expect("save markdown");
 
     let mut board = KanbanBoard::default();
