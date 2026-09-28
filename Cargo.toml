@@ -9,12 +9,14 @@ s3 = ["dep:rust-s3", "dep:tokio"]
 
 [dependencies]
 chrono = { version = "0.4.45", features = ["serde", "clock"] }
+comrak = { version = "0.55.0", default-features = false }
 directories = "6.0.0"
 eframe = "0.34.3"
 rfd = "0.17.2"
 rust-s3 = { version = "0.37.2", default-features = false, features = ["fail-on-err", "tokio-rustls-tls"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt-multi-thread"], optional = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
