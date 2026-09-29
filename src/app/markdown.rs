@@ -112,7 +112,7 @@ fn render_numbered_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
         let background = ui.painter().add(egui::Shape::Noop);
         let highlight = ui.painter().add(egui::Shape::Noop);
         let output = egui::TextEdit::multiline(text)
-            .background_color(egui::Color32::TRANSPARENT)
+            .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(4, 2)))
             .id_salt("body")
             .font(font.clone())
             .hint_text("Write markdown...")
@@ -122,7 +122,7 @@ fn render_numbered_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
         let editor_rect = output.response.rect.union(gutter);
         ui.painter().set(
             background,
-            egui::Shape::rect_filled(editor_rect, 2.0, ui.visuals().text_edit_bg_color()),
+            egui::Shape::rect_filled(output.response.rect, 2.0, ui.visuals().text_edit_bg_color()),
         );
         let active_line = output
             .cursor_range
