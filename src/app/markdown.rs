@@ -1179,7 +1179,7 @@ fn editor_caret_matches_text_row_height() {
             .iter()
             .find_map(|shape| {
                 if let egui::Shape::LineSegment { points, stroke } = &shape.shape {
-                    (stroke.width == 2.0 && stroke.color == egui::Color32::from_gray(160))
+                    (stroke.width == 2.0 && stroke.color == egui::Color32::from_gray(200))
                         .then_some(points)
                 } else {
                     None
