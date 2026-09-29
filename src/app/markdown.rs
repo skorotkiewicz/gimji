@@ -11,7 +11,7 @@ use syntect::{
 
 use crate::models::MarkdownDocument;
 
-use super::{SURFACE_BG, SURFACE_LOW, TEXT_MUTED, panel_frame};
+use super::{SURFACE_BG, SURFACE_HOVER, SURFACE_LOW, TEXT_MUTED, panel_frame};
 
 const MARKDOWN_MIN_VISIBLE_ROWS: usize = 4;
 
@@ -36,19 +36,27 @@ pub(super) fn render_markdown(
                         ui.data(|data| data.get_temp::<bool>(preview_id).unwrap_or(false));
                     panel_frame(SURFACE_LOW).show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            if ui
-                                .small_button(if document.file.collapsed {
-                                    "▶"
-                                } else {
-                                    "▼"
-                                })
-                                .on_hover_text(if document.file.collapsed {
-                                    "Expand"
-                                } else {
-                                    "Collapse"
-                                })
-                                .clicked()
-                            {
+                            let label = if document.file.collapsed {
+                                "Expand"
+                            } else {
+                                "Collapse"
+                            };
+                            let (_, response) = ui
+                                .allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+                            let response = response.on_hover_text(label);
+                            response.widget_info(|| {
+                                egui::WidgetInfo::labeled(
+                                    egui::WidgetType::CollapsingHeader,
+                                    ui.is_enabled(),
+                                    label,
+                                )
+                            });
+                            egui::collapsing_header::paint_default_icon(
+                                ui,
+                                if document.file.collapsed { 0.0 } else { 1.0 },
+                                &response,
+                            );
+                            if response.clicked() {
                                 document.file.collapsed = !document.file.collapsed;
                                 dirty = true;
                             }
@@ -100,25 +108,66 @@ fn render_numbered_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
         let (gutter, _) =
             ui.allocate_exact_size(egui::vec2(gutter_width, 0.0), egui::Sense::hover());
         let desired_rows = markdown_editor_desired_rows(text);
+        // Reserve paint slots behind the text, selection, and caret.
+        let background = ui.painter().add(egui::Shape::Noop);
+        let highlight = ui.painter().add(egui::Shape::Noop);
         let output = egui::TextEdit::multiline(text)
+            .background_color(egui::Color32::TRANSPARENT)
             .id_salt("body")
             .font(font.clone())
             .hint_text("Write markdown...")
             .desired_width(f32::INFINITY)
             .desired_rows(desired_rows)
             .show(ui);
-        for (number, y) in line_number_positions(&output.galley) {
+        let editor_rect = output.response.rect.union(gutter);
+        ui.painter().set(
+            background,
+            egui::Shape::rect_filled(editor_rect, 2.0, ui.visuals().text_edit_bg_color()),
+        );
+        let active_line = output
+            .cursor_range
+            .filter(|_| output.response.has_focus())
+            .map(|range| active_line_number(&output.galley, range.primary));
+        let positions = line_number_positions(&output.galley);
+        for (index, &(number, y)) in positions.iter().enumerate() {
+            let active = active_line == Some(number);
+            if active {
+                let bottom = positions
+                    .get(index + 1)
+                    .map_or(output.galley.rect.bottom(), |(_, y)| *y);
+                let rect = egui::Rect::from_min_max(
+                    egui::pos2(editor_rect.left(), output.galley_pos.y + y),
+                    egui::pos2(editor_rect.right(), output.galley_pos.y + bottom),
+                )
+                .intersect(editor_rect);
+                ui.painter().set(
+                    highlight,
+                    egui::Shape::rect_filled(rect, 0.0, SURFACE_HOVER),
+                );
+            }
             ui.painter().text(
                 egui::pos2(gutter.right() - 4.0, output.galley_pos.y + y),
                 egui::Align2::RIGHT_TOP,
                 number.to_string(),
                 font.clone(),
-                TEXT_MUTED,
+                if active {
+                    ui.visuals().text_color()
+                } else {
+                    TEXT_MUTED
+                },
             );
         }
         output.response.changed()
     })
     .inner
+}
+
+fn active_line_number(galley: &egui::Galley, cursor: egui::text::CCursor) -> usize {
+    let row = galley.layout_from_cursor(cursor).row;
+    1 + galley.rows[..row]
+        .iter()
+        .filter(|row| row.ends_with_newline)
+        .count()
 }
 
 fn line_number_positions(galley: &egui::Galley) -> Vec<(usize, f32)> {
@@ -345,6 +394,7 @@ fn line_numbers_follow_logical_lines_including_empty_and_wrapped_lines() {
             "",
             "a\n\n",
             "a very long line that wraps across several rows\nnext\n",
+            "日本語\nnext\n",
         ] {
             let galley = ui.painter().layout(
                 text.to_owned(),
@@ -354,6 +404,13 @@ fn line_numbers_follow_logical_lines_including_empty_and_wrapped_lines() {
             );
             let positions = line_number_positions(&galley);
             assert_eq!(positions.len(), text.split('\n').count());
+            for index in 0..=text.chars().count() {
+                let expected = 1 + text.chars().take(index).filter(|ch| *ch == '\n').count();
+                assert_eq!(
+                    active_line_number(&galley, egui::text::CCursor::new(index)),
+                    expected
+                );
+            }
             for (index, (number, y)) in positions.iter().enumerate() {
                 assert_eq!(*number, index + 1);
                 if index > 0 {
