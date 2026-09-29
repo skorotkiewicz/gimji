@@ -124,13 +124,14 @@ impl GimjiApp {
                                 .desired_width(f32::INFINITY)
                                 .margin(egui::Vec2::new(6.0, 5.0)),
                         );
-                        if ui
+                        let response = ui
                             .add_sized(
                                 [add_width, SIDEBAR_FIELD_HEIGHT],
-                                egui::Button::new("+").small().corner_radius(SIDEBAR_RADIUS),
+                                egui::Button::new("").small().corner_radius(SIDEBAR_RADIUS),
                             )
-                            .clicked()
-                        {
+                            .on_hover_text("Add note");
+                        super::paint_add_icon(ui, &response, "Add note");
+                        if response.clicked() {
                             self.add_note();
                         }
                     });

@@ -1066,6 +1066,36 @@ fn note_header_action_area_size(width: f32) -> egui::Vec2 {
     egui::vec2(width, NOTE_HEADER_ACTION_HEIGHT)
 }
 
+fn paint_add_icon(ui: &egui::Ui, response: &egui::Response, label: &str) {
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    let center = response.rect.center();
+    let stroke = ui.style().interact(response).fg_stroke;
+    for axis in [egui::vec2(4.0, 0.0), egui::vec2(0.0, 4.0)] {
+        ui.painter()
+            .line_segment([center - axis, center + axis], stroke);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn add_icon_is_centered() {
+    let context = egui::Context::default();
+    let _ = context.run_ui(egui::RawInput::default(), |ui| {
+        let response = ui.add_sized([32.0, 30.0], egui::Button::new(""));
+        paint_add_icon(ui, &response, "Add");
+        let mut strokes = 0;
+        ui.painter().for_each_shape(|shape| {
+            if let egui::Shape::LineSegment { points, .. } = &shape.shape {
+                assert_eq!(points[0].lerp(points[1], 0.5), response.rect.center());
+                strokes += 1;
+            }
+        });
+        assert_eq!(strokes, 2);
+    });
+}
+
 fn panel_frame(fill: egui::Color32) -> egui::Frame {
     egui::Frame::new()
         .fill(fill)

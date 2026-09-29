@@ -119,7 +119,7 @@ impl GimjiApp {
                     }
 
                     let (response, _) = egui::containers::menu::MenuButton::from_button(
-                        egui::Button::new("+")
+                        egui::Button::new("")
                             .small()
                             .min_size(egui::vec2(TAB_ADD_WIDTH, TAB_CHIP_HEIGHT))
                             .corner_radius(TAB_CHIP_RADIUS),
@@ -133,6 +133,7 @@ impl GimjiApp {
                             }
                         }
                     });
+                    super::paint_add_icon(ui, &response, "Add tab");
                     response.on_hover_text("Add tab");
                 });
             });
