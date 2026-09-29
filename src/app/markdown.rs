@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::OnceLock;
 
 use comrak::{
@@ -14,6 +15,118 @@ use crate::models::MarkdownDocument;
 use super::{SURFACE_BG, SURFACE_HOVER, SURFACE_LOW, TEXT_MUTED, panel_frame};
 
 const MARKDOWN_MIN_VISIBLE_ROWS: usize = 4;
+
+#[derive(Clone, Default)]
+struct SearchState {
+    open: bool,
+    query: String,
+    current: usize,
+}
+
+impl SearchState {
+    fn advance(&mut self, count: usize, previous: bool) -> bool {
+        if count == 0 {
+            self.current = 0;
+            return false;
+        }
+        self.current = self.current.min(count - 1);
+        self.current = if previous {
+            (self.current + count - 1) % count
+        } else {
+            (self.current + 1) % count
+        };
+        true
+    }
+}
+
+const SEARCH_MATCH_BG: egui::Color32 = egui::Color32::from_rgb(70, 60, 24);
+const SEARCH_CURRENT_BG: egui::Color32 = egui::Color32::from_rgb(120, 88, 28);
+const ICON_SIZE: f32 = 24.0;
+
+#[derive(Clone, Copy)]
+enum Icon {
+    Preview,
+    Search,
+    Remove,
+    Previous,
+    Next,
+    Close,
+}
+
+fn icon_button(ui: &mut egui::Ui, icon: Icon, label: &str, selected: bool) -> egui::Response {
+    let response = ui
+        .add(
+            egui::Button::new("")
+                .min_size(egui::vec2(ICON_SIZE, ICON_SIZE))
+                .selected(selected),
+        )
+        .on_hover_text(label);
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    let rect = egui::Rect::from_center_size(response.rect.center(), egui::vec2(14.0, 14.0));
+    let at = |x: f32, y: f32| rect.min + egui::vec2(x * rect.width(), y * rect.height());
+    let stroke = ui.style().interact(&response).fg_stroke;
+    let painter = ui.painter();
+    match icon {
+        Icon::Preview => {
+            for y in [-0.1, 1.1] {
+                painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
+                    [at(0.0, 0.5), at(0.25, y), at(0.75, y), at(1.0, 0.5)],
+                    false,
+                    egui::Color32::TRANSPARENT,
+                    stroke,
+                ));
+            }
+            painter.circle_stroke(at(0.5, 0.5), 2.0, stroke);
+        }
+        Icon::Search => {
+            painter.circle_stroke(at(0.4, 0.4), 4.5, stroke);
+            painter.line_segment([at(0.65, 0.65), at(1.0, 1.0)], stroke);
+        }
+        Icon::Remove => {
+            painter.rect_stroke(
+                egui::Rect::from_min_max(at(0.2, 0.3), at(0.8, 1.0)),
+                1.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            painter.line_segment([at(0.1, 0.2), at(0.9, 0.2)], stroke);
+            painter.line_segment([at(0.35, 0.0), at(0.65, 0.0)], stroke);
+            for x in [0.4, 0.6] {
+                painter.line_segment([at(x, 0.45), at(x, 0.85)], stroke);
+            }
+        }
+        Icon::Previous | Icon::Next => {
+            let x = if matches!(icon, Icon::Previous) {
+                0.25
+            } else {
+                0.75
+            };
+            painter.add(egui::Shape::line(
+                vec![at(1.0 - x, 0.1), at(x, 0.5), at(1.0 - x, 0.9)],
+                stroke,
+            ));
+        }
+        Icon::Close => {
+            painter.line_segment([at(0.15, 0.15), at(0.85, 0.85)], stroke);
+            painter.line_segment([at(0.85, 0.15), at(0.15, 0.85)], stroke);
+        }
+    }
+    response
+}
+
+fn gutter_width(ui: &egui::Ui, text: &str) -> f32 {
+    ui.painter()
+        .layout_no_wrap(
+            text.split('\n').count().to_string(),
+            egui::TextStyle::Monospace.resolve(ui.style()),
+            TEXT_MUTED,
+        )
+        .size()
+        .x
+        + 12.0
+}
 
 pub(super) fn render_markdown(
     ui: &mut egui::Ui,
@@ -34,15 +147,23 @@ pub(super) fn render_markdown(
                     let preview_id = ui.make_persistent_id("preview");
                     let mut preview =
                         ui.data(|data| data.get_temp::<bool>(preview_id).unwrap_or(false));
+                    let search_id = ui.make_persistent_id("search");
+                    let mut search =
+                        ui.data(|data| data.get_temp::<SearchState>(search_id).unwrap_or_default());
+                    let mut focus_search = false;
+                    let mut reveal_match = false;
                     panel_frame(SURFACE_LOW).show(ui, |ui| {
+                        let gutter_width = gutter_width(ui, &document.text);
                         ui.horizontal(|ui| {
                             let label = if document.file.collapsed {
                                 "Expand"
                             } else {
                                 "Collapse"
                             };
-                            let (_, response) = ui
-                                .allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+                            let (_, response) = ui.allocate_exact_size(
+                                egui::vec2(gutter_width, ICON_SIZE),
+                                egui::Sense::click(),
+                            );
                             let response = response.on_hover_text(label);
                             response.widget_info(|| {
                                 egui::WidgetInfo::labeled(
@@ -51,59 +172,196 @@ pub(super) fn render_markdown(
                                     label,
                                 )
                             });
+                            let mut arrow = response.clone();
+                            arrow.rect = egui::Rect::from_center_size(
+                                response.rect.center(),
+                                egui::vec2(14.0, 14.0),
+                            );
                             egui::collapsing_header::paint_default_icon(
                                 ui,
                                 if document.file.collapsed { 0.0 } else { 1.0 },
-                                &response,
+                                &arrow,
                             );
                             if response.clicked() {
                                 document.file.collapsed = !document.file.collapsed;
                                 dirty = true;
                             }
+                            let title_width = ui.available_width()
+                                - 3.0 * (ICON_SIZE + ui.spacing().item_spacing.x);
                             dirty |= ui
                                 .add(
                                     egui::TextEdit::singleline(&mut document.file.title)
                                         .id_salt("title")
+                                        .font(egui::TextStyle::Monospace)
+                                        .frame(
+                                            egui::Frame::new()
+                                                .fill(ui.visuals().text_edit_bg_color())
+                                                .inner_margin(egui::Margin::symmetric(4, 2)),
+                                        )
                                         .hint_text("Untitled")
-                                        .desired_width((ui.available_width() - 160.0).max(80.0)),
+                                        .desired_width(title_width.max(40.0)),
                                 )
                                 .changed();
-                            if ui.selectable_label(preview, "Preview").clicked() {
+                            if icon_button(ui, Icon::Preview, "Preview", preview).clicked() {
                                 preview = !preview;
                                 ui.data_mut(|data| data.insert_temp(preview_id, preview));
+                                if preview {
+                                    search.open = false;
+                                }
                                 if document.file.collapsed {
                                     document.file.collapsed = false;
                                     dirty = true;
                                 }
                             }
-                            if ui.button("Remove").clicked() {
+                            if icon_button(ui, Icon::Search, "Search Markdown source", search.open)
+                                .clicked()
+                            {
+                                search.open = !search.open;
+                                if search.open {
+                                    preview = false;
+                                    ui.data_mut(|data| data.insert_temp(preview_id, false));
+                                    focus_search = true;
+                                    reveal_match = true;
+                                    if document.file.collapsed {
+                                        document.file.collapsed = false;
+                                        dirty = true;
+                                    }
+                                }
+                            }
+                            if icon_button(ui, Icon::Remove, "Remove Markdown file", false)
+                                .clicked()
+                            {
                                 remove = Some(document.file.id.clone());
                             }
                         });
                         if !document.file.collapsed {
+                            if search.open {
+                                reveal_match |= render_search_bar(
+                                    ui,
+                                    &document.text,
+                                    &mut search,
+                                    search_id.with("query"),
+                                    focus_search,
+                                );
+                            }
                             ui.add_space(4.0);
                             if preview {
                                 render_markdown_preview(ui, &document.text);
                             } else {
-                                dirty |= render_numbered_editor(ui, &mut document.text);
+                                dirty |= render_numbered_editor(
+                                    ui,
+                                    &mut document.text,
+                                    &search,
+                                    reveal_match,
+                                );
                             }
                         }
                     });
+                    ui.data_mut(|data| data.insert_temp(search_id, search));
                 });
             }
         });
     (dirty, remove)
 }
 
-fn render_numbered_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
+fn render_search_bar(
+    ui: &mut egui::Ui,
+    text: &str,
+    search: &mut SearchState,
+    id: egui::Id,
+    focus: bool,
+) -> bool {
+    ui.horizontal(|ui| {
+        let input = ui.add(
+            egui::TextEdit::singleline(&mut search.query)
+                .id(id)
+                .hint_text("Find text (case-sensitive)")
+                .desired_width((ui.available_width() - 170.0).max(40.0)),
+        );
+        if focus {
+            input.request_focus();
+        }
+        let mut reveal = input.changed();
+        if reveal {
+            search.current = 0;
+        }
+        let count = search_ranges(text, &search.query).len();
+        search.current = search.current.min(count.saturating_sub(1));
+        let (enter, previous, escape) = ui.input(|input_state| {
+            (
+                input_state.key_pressed(egui::Key::Enter),
+                input_state.modifiers.shift,
+                input_state.key_pressed(egui::Key::Escape),
+            )
+        });
+        if input.has_focus() || input.lost_focus() {
+            if enter {
+                reveal |= search.advance(count, previous);
+                input.request_focus();
+            }
+            if escape {
+                search.open = false;
+            }
+        }
+        ui.add_enabled_ui(count > 0, |ui| {
+            if icon_button(ui, Icon::Previous, "Previous match (Shift+Enter)", false).clicked() {
+                reveal |= search.advance(count, true);
+            }
+            if icon_button(ui, Icon::Next, "Next match (Enter)", false).clicked() {
+                reveal |= search.advance(count, false);
+            }
+        });
+        ui.label(format!(
+            "{}/{}",
+            if count == 0 { 0 } else { search.current + 1 },
+            count
+        ));
+        if icon_button(ui, Icon::Close, "Close search", false).clicked() {
+            search.open = false;
+        }
+        reveal
+    })
+    .inner
+}
+
+fn search_ranges(text: &str, query: &str) -> Vec<Range<usize>> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    text.match_indices(query)
+        .map(|(start, matched)| start..start + matched.len())
+        .collect()
+}
+
+fn search_job(text: &str, search: &SearchState, format: egui::TextFormat) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let matches = search_ranges(text, if search.open { &search.query } else { "" });
+    let current = search.current.min(matches.len().saturating_sub(1));
+    let mut end = 0;
+    for (index, range) in matches.iter().enumerate() {
+        job.append(&text[end..range.start], 0.0, format.clone());
+        let mut matched = format.clone();
+        matched.background = if index == current {
+            SEARCH_CURRENT_BG
+        } else {
+            SEARCH_MATCH_BG
+        };
+        job.append(&text[range.clone()], 0.0, matched);
+        end = range.end;
+    }
+    job.append(&text[end..], 0.0, format);
+    job
+}
+
+fn render_numbered_editor(
+    ui: &mut egui::Ui,
+    text: &mut String,
+    search: &SearchState,
+    reveal_match: bool,
+) -> bool {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
-    let line_count = text.split('\n').count();
-    let gutter_width = ui
-        .painter()
-        .layout_no_wrap(line_count.to_string(), font.clone(), TEXT_MUTED)
-        .size()
-        .x
-        + 12.0;
+    let gutter_width = gutter_width(ui, text);
+    let editor_id = ui.make_persistent_id("body");
     ui.horizontal_top(|ui| {
         let (gutter, _) =
             ui.allocate_exact_size(egui::vec2(gutter_width, 0.0), egui::Sense::hover());
@@ -111,10 +369,20 @@ fn render_numbered_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
         // Reserve paint slots behind the text, selection, and caret.
         let background = ui.painter().add(egui::Shape::Noop);
         let highlight = ui.painter().add(egui::Shape::Noop);
+        let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width: f32| {
+            let mut job = search_job(
+                buffer.as_str(),
+                search,
+                egui::TextFormat::simple(font.clone(), ui.visuals().text_color()),
+            );
+            job.wrap.max_width = width;
+            ui.fonts_mut(|fonts| fonts.layout_job(job))
+        };
         let output = egui::TextEdit::multiline(text)
             .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(4, 2)))
-            .id_salt("body")
+            .id(editor_id)
             .font(font.clone())
+            .layouter(&mut layouter)
             .hint_text("Write markdown...")
             .desired_width(f32::INFINITY)
             .desired_rows(desired_rows)
@@ -124,6 +392,17 @@ fn render_numbered_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
             background,
             egui::Shape::rect_filled(output.response.rect, 2.0, ui.visuals().text_edit_bg_color()),
         );
+        if reveal_match && search.open {
+            let matches = search_ranges(text, &search.query);
+            if let Some(range) = matches.get(search.current.min(matches.len().saturating_sub(1))) {
+                let cursor = egui::text::CCursor::new(text[..range.start].chars().count());
+                let rect = output
+                    .galley
+                    .pos_from_cursor(cursor)
+                    .translate(output.galley_pos.to_vec2());
+                ui.scroll_to_rect(rect, Some(egui::Align::Center));
+            }
+        }
         let active_line = output
             .cursor_range
             .filter(|_| output.response.has_focus())
@@ -430,4 +709,156 @@ fn line_numbers_follow_logical_lines_including_empty_and_wrapped_lines() {
         documents[1].file.collapsed = true;
         assert_eq!(render_markdown(ui, &mut documents), (false, None));
     });
+}
+
+#[cfg(test)]
+#[test]
+fn search_handles_unicode_navigation_and_closed_highlights() {
+    let text = "é 猫\n猫 é";
+    assert_eq!(search_ranges(text, "猫"), vec![3..6, 7..10]);
+    assert!(search_ranges(text, "").is_empty());
+    assert!(search_ranges(text, "missing").is_empty());
+    assert!(search_ranges("Note", "note").is_empty());
+    assert_eq!(search_ranges("ababa", "aba"), vec![0..3]);
+    let mut search = SearchState {
+        open: true,
+        query: "猫".to_owned(),
+        current: 0,
+    };
+    assert!(search.advance(2, true));
+    assert_eq!(search.current, 1);
+    let job = search_job(text, &search, egui::TextFormat::default());
+    assert_eq!(job.text, text);
+    let highlighted: Vec<_> = job
+        .sections
+        .iter()
+        .filter(|section| section.format.background != egui::Color32::TRANSPARENT)
+        .collect();
+    assert_eq!(highlighted.len(), 2);
+    assert_eq!(highlighted[0].byte_range, 3..6);
+    assert_eq!(highlighted[0].format.background, SEARCH_MATCH_BG);
+    assert_eq!(highlighted[1].format.background, SEARCH_CURRENT_BG);
+    assert!(search.advance(2, false));
+    assert_eq!(search.current, 0);
+    search.current = 99;
+    assert!(search.advance(1, false));
+    assert_eq!(search.current, 0);
+    assert!(!search.advance(0, false));
+    search.open = false;
+    assert!(
+        search_job(text, &search, egui::TextFormat::default())
+            .sections
+            .iter()
+            .all(|section| section.format.background == egui::Color32::TRANSPARENT)
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn search_is_per_file_and_title_aligns_with_editor_text() {
+    let context = egui::Context::default();
+    super::configure_theme(&context);
+    let mut first = MarkdownDocument::new("First title");
+    first.text = "needle\nneedle\n".to_owned();
+    let mut second = MarkdownDocument::new("Second title");
+    second.text = "needle in another file".to_owned();
+    let mut documents = vec![first, second];
+    let original = documents.clone();
+    let mut frame = |events: Vec<egui::Event>| {
+        context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                assert_eq!(render_markdown(ui, &mut documents), (false, None));
+            },
+        )
+    };
+    let output = frame(vec![]);
+    let text_x = |text: &str| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| {
+                if let egui::Shape::Text(shape) = &shape.shape {
+                    (shape.galley.job.text == text).then_some(shape.pos.x)
+                } else {
+                    None
+                }
+            })
+            .expect("text painted")
+    };
+    assert_eq!(text_x("First title"), text_x("needle\nneedle\n"));
+    assert_eq!(text_x("Second title"), text_x("needle in another file"));
+    let search_position = output
+        .shapes
+        .iter()
+        .find_map(|shape| {
+            if let egui::Shape::Circle(circle) = &shape.shape {
+                (circle.radius == 4.5).then_some(circle.center)
+            } else {
+                None
+            }
+        })
+        .expect("search icon painted");
+    frame(vec![egui::Event::PointerMoved(search_position)]);
+    for pressed in [true, false] {
+        frame(vec![egui::Event::PointerButton {
+            pos: search_position,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+    }
+    let output = frame(vec![egui::Event::Text("needle".to_owned())]);
+    let jobs: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|shape| {
+            if let egui::Shape::Text(shape) = &shape.shape {
+                Some(&shape.galley.job)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(jobs.iter().any(|job| job.text == "1/2"));
+    let first = jobs
+        .iter()
+        .find(|job| job.text == "needle\nneedle\n")
+        .unwrap();
+    assert_eq!(
+        first
+            .sections
+            .iter()
+            .filter(|section| section.format.background != egui::Color32::TRANSPARENT)
+            .count(),
+        2
+    );
+    let second = jobs
+        .iter()
+        .find(|job| job.text == "needle in another file")
+        .unwrap();
+    assert!(
+        second
+            .sections
+            .iter()
+            .all(|section| section.format.background == egui::Color32::TRANSPARENT)
+    );
+    let output = frame(vec![egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    assert!(output.shapes.iter().any(
+        |shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "2/2")
+    ));
+    assert_eq!(documents, original);
 }
