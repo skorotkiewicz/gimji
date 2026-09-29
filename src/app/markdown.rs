@@ -272,11 +272,40 @@ fn render_search_bar(
     focus: bool,
 ) -> bool {
     ui.horizontal(|ui| {
+        ui.allocate_exact_size(
+            egui::vec2(gutter_width(ui, text), 0.0),
+            egui::Sense::hover(),
+        );
+        let count = search_ranges(text, &search.query).len();
+        let counter = format!(
+            "{}/{}",
+            if count == 0 {
+                0
+            } else {
+                search.current.min(count - 1) + 1
+            },
+            count
+        );
+        let counter_width = ui
+            .painter()
+            .layout_no_wrap(
+                counter,
+                egui::TextStyle::Body.resolve(ui.style()),
+                ui.visuals().text_color(),
+            )
+            .size()
+            .x;
+        let controls_width = 3.0 * ICON_SIZE + 4.0 * ui.spacing().item_spacing.x + counter_width;
         let input = ui.add(
             egui::TextEdit::singleline(&mut search.query)
                 .id(id)
+                .frame(
+                    egui::Frame::new()
+                        .fill(ui.visuals().text_edit_bg_color())
+                        .inner_margin(egui::Margin::symmetric(4, 2)),
+                )
                 .hint_text("Find text (case-sensitive)")
-                .desired_width((ui.available_width() - 170.0).max(40.0)),
+                .desired_width((ui.available_width() - controls_width).max(40.0)),
         );
         if focus {
             input.request_focus();
@@ -815,7 +844,52 @@ fn search_is_per_file_and_title_aligns_with_editor_text() {
             modifiers: egui::Modifiers::NONE,
         }]);
     }
-    let output = frame(vec![egui::Event::Text("needle".to_owned())]);
+    frame(vec![egui::Event::Text("needle".to_owned())]);
+    let output = frame(vec![]);
+    let search_x = output
+        .shapes
+        .iter()
+        .find_map(|shape| {
+            if let egui::Shape::Text(shape) = &shape.shape {
+                (shape.galley.job.text == "needle").then_some(shape.pos.x)
+            } else {
+                None
+            }
+        })
+        .expect("search input painted");
+    assert_eq!(search_x, text_x("First title"));
+    let focused = context.memory(|memory| memory.focused()).unwrap();
+    let input_rect = context.read_response(focused).unwrap().rect;
+    let editor_right = output
+        .shapes
+        .iter()
+        .find_map(|shape| {
+            if let egui::Shape::Rect(rect) = &shape.shape {
+                (rect.fill == context.global_style().visuals.text_edit_bg_color()
+                    && rect.rect.height() > ICON_SIZE)
+                    .then_some(rect.rect.right())
+            } else {
+                None
+            }
+        })
+        .expect("editor background painted");
+    let controls_right = output
+        .shapes
+        .iter()
+        .filter_map(|shape| {
+            if let egui::Shape::Rect(rect) = &shape.shape {
+                (rect.rect.left() > input_rect.right()
+                    && input_rect.y_range().contains(rect.rect.center().y))
+                .then_some(rect.rect.right())
+            } else {
+                None
+            }
+        })
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        (controls_right - editor_right).abs() < 1.0,
+        "controls end at {controls_right}, editor ends at {editor_right}"
+    );
     let jobs: Vec<_> = output
         .shapes
         .iter()
