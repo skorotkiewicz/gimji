@@ -574,9 +574,29 @@ fn render_markdown_block(ui: &mut egui::Ui, node: Node<'_>) {
                 .fill(SURFACE_BG)
                 .stroke(egui::Stroke::new(1.0_f32, super::STROKE))
                 .corner_radius(5)
-                .inner_margin(12)
+                .inner_margin(egui::Margin {
+                    left: 12,
+                    right: 12,
+                    top: 12,
+                    bottom: 4,
+                })
                 .show(ui, |ui| {
                     ui.set_min_width((width - 26.0).max(0.0));
+                    ui.spacing_mut().scroll = egui::style::ScrollStyle {
+                        bar_width: 4.0,
+                        floating_width: 4.0,
+                        content_margin: egui::Margin {
+                            bottom: 4,
+                            ..egui::Margin::ZERO
+                        },
+                        foreground_color: false,
+                        ..egui::style::ScrollStyle::floating()
+                    };
+                    ui.visuals_mut().extreme_bg_color = SURFACE_BG;
+                    let widgets = &mut ui.visuals_mut().widgets;
+                    widgets.inactive.bg_fill = egui::Color32::from_gray(95);
+                    widgets.hovered.bg_fill = egui::Color32::from_gray(130);
+                    widgets.active.bg_fill = egui::Color32::from_gray(155);
                     egui::ScrollArea::horizontal()
                         .id_salt(("markdown-code", node.data().sourcepos.start.line))
                         .auto_shrink([false, true])
