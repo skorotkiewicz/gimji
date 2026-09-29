@@ -12,7 +12,10 @@ chrono = { version = "0.4.45", features = ["serde", "clock"] }
 comrak = { version = "0.55.0", default-features = false }
 directories = "6.0.0"
 eframe = "0.34.3"
+egui_extras = { version = "0.34.3", default-features = false, features = ["http", "image"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rfd = "0.17.2"
+resvg = { version = "0.45", default-features = false, features = ["text"] }
 rust-s3 = { version = "0.37.2", default-features = false, features = ["fail-on-err", "tokio-rustls-tls"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

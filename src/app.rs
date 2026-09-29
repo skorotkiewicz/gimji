@@ -144,6 +144,7 @@ struct GimjiApp {
 impl GimjiApp {
     fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         configure_theme(&creation_context.egui_ctx);
+        markdown::configure_preview(&creation_context.egui_ctx);
         #[cfg(feature = "s3")]
         let initial_s3_settings = initial_s3_connection_settings_from_environment();
 

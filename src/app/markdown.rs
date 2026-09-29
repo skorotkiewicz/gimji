@@ -490,6 +490,33 @@ fn line_number_positions(galley: &egui::Galley) -> Vec<(usize, f32)> {
     numbers
 }
 
+const PREVIEW_FONT: &str = "markdown-regular";
+const PREVIEW_BOLD: &str = "markdown-bold";
+const PREVIEW_TEXT: egui::Color32 = egui::Color32::from_rgb(206, 211, 215);
+const REGULAR_FONT: &[u8] = include_bytes!("../../assets/fonts/NotoSans-Regular.ttf");
+
+pub(super) fn configure_preview(context: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    for (name, bytes) in [
+        (PREVIEW_FONT, REGULAR_FONT),
+        (
+            PREVIEW_BOLD,
+            include_bytes!("../../assets/fonts/NotoSans-Bold.ttf").as_slice(),
+        ),
+    ] {
+        fonts
+            .font_data
+            .insert(name.into(), egui::FontData::from_static(bytes).into());
+        let mut family = fonts.families[&egui::FontFamily::Proportional].clone();
+        family.insert(0, name.into());
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(name.into()), family);
+    }
+    context.set_fonts(fonts);
+    egui_extras::install_image_loaders(context);
+}
+
 fn render_markdown_preview(ui: &mut egui::Ui, markdown: &str) {
     let arena = Arena::new();
     let mut options = Options::default();
@@ -497,38 +524,88 @@ fn render_markdown_preview(ui: &mut egui::Ui, markdown: &str) {
     options.extension.table = true;
     options.extension.tasklist = true;
     let document = comrak::parse_document(&arena, markdown, &options);
-    for child in document.children() {
-        render_markdown_block(ui, child);
-    }
+    ui.scope(|ui| {
+        ui.visuals_mut().override_text_color = Some(PREVIEW_TEXT);
+        ui.spacing_mut().item_spacing.y = 4.0;
+        for child in document.children() {
+            render_markdown_block(ui, child);
+        }
+    });
 }
 
 fn render_markdown_block(ui: &mut egui::Ui, node: Node<'_>) {
     match &node.data().value {
         NodeValue::Heading(heading) => {
-            let size = (28.0 - heading.level as f32 * 2.0).max(16.0);
+            let size = match heading.level {
+                1 => 28.0,
+                2 => 22.0,
+                3 => 18.0,
+                _ => 16.0,
+            };
+            ui.add_space(if node.previous_sibling().is_some() {
+                14.0
+            } else {
+                4.0
+            });
+            render_inline(ui, node, size);
+            if heading.level <= 2 {
+                ui.separator();
+            }
             ui.add_space(6.0);
-            ui.label(inline_job(node, size, ui.visuals().text_color()));
         }
         NodeValue::Paragraph | NodeValue::TableCell => {
-            ui.label(inline_job(node, 14.0, ui.visuals().text_color()));
+            render_inline(ui, node, 16.0);
+            // Tight list items and table cells should not get paragraph-sized gaps.
+            if matches!(node.data().value, NodeValue::Paragraph)
+                && !node.parent().is_some_and(|parent| {
+                    matches!(
+                        parent.data().value,
+                        NodeValue::Item(_) | NodeValue::TaskItem(_)
+                    )
+                })
+            {
+                ui.add_space(10.0);
+            }
         }
         NodeValue::CodeBlock(block) => {
             let language = block.info.split_whitespace().next().unwrap_or("");
+            let width = ui.available_width();
             egui::Frame::new()
                 .fill(SURFACE_BG)
-                .inner_margin(8)
+                .stroke(egui::Stroke::new(1.0_f32, super::STROKE))
+                .corner_radius(5)
+                .inner_margin(12)
                 .show(ui, |ui| {
-                    ui.label(code_job(&block.literal, language));
+                    ui.set_min_width((width - 26.0).max(0.0));
+                    egui::ScrollArea::horizontal()
+                        .id_salt(("markdown-code", node.data().sourcepos.start.line))
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(code_job(
+                                    block.literal.trim_end_matches('\n'),
+                                    language,
+                                ))
+                                .extend()
+                                .selectable(true),
+                            );
+                        });
                 });
+            ui.add_space(10.0);
         }
         NodeValue::List(list) => {
             for (index, child) in node.children().enumerate() {
-                let marker = match list.list_type {
-                    ListType::Ordered => format!("{}. ", list.start + index),
-                    ListType::Bullet => "• ".to_owned(),
+                let marker = if let NodeValue::TaskItem(task) = &child.data().value {
+                    if task.symbol.is_some() { "☑" } else { "☐" }.to_owned()
+                } else {
+                    match list.list_type {
+                        ListType::Ordered => format!("{}.", list.start + index),
+                        ListType::Bullet => "•".to_owned(),
+                    }
                 };
                 ui.horizontal_top(|ui| {
-                    ui.label(marker);
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new(marker).size(16.0));
                     ui.vertical(|ui| {
                         for item in child.children() {
                             render_markdown_block(ui, item);
@@ -536,11 +613,12 @@ fn render_markdown_block(ui: &mut egui::Ui, node: Node<'_>) {
                     });
                 });
             }
+            ui.add_space(10.0);
         }
         NodeValue::BlockQuote => {
             egui::Frame::new()
                 .fill(SURFACE_BG)
-                .inner_margin(8)
+                .inner_margin(10)
                 .show(ui, |ui| {
                     for child in node.children() {
                         render_markdown_block(ui, child);
@@ -548,7 +626,7 @@ fn render_markdown_block(ui: &mut egui::Ui, node: Node<'_>) {
                 });
         }
         NodeValue::Table(_) => {
-            egui::Grid::new(node as *const _)
+            egui::Grid::new(("markdown-table", node.data().sourcepos.start.line))
                 .striped(true)
                 .show(ui, |ui| {
                     for row in node.children() {
@@ -558,9 +636,12 @@ fn render_markdown_block(ui: &mut egui::Ui, node: Node<'_>) {
                         ui.end_row();
                     }
                 });
+            ui.add_space(10.0);
         }
         NodeValue::ThematicBreak => {
+            ui.add_space(8.0);
             ui.separator();
+            ui.add_space(8.0);
         }
         NodeValue::HtmlBlock(html) => {
             ui.label(&html.literal);
@@ -573,49 +654,210 @@ fn render_markdown_block(ui: &mut egui::Ui, node: Node<'_>) {
     }
 }
 
-fn inline_job(node: Node<'_>, size: f32, color: egui::Color32) -> egui::text::LayoutJob {
-    fn append(node: Node<'_>, job: &mut egui::text::LayoutJob, format: egui::TextFormat) {
-        let mut format = format;
-        match &node.data().value {
-            NodeValue::Text(text) => job.append(text, 0.0, format.clone()),
-            NodeValue::Code(code) => {
-                format.font_id = egui::FontId::monospace(format.font_id.size);
-                job.append(&code.literal, 0.0, format.clone());
-            }
-            NodeValue::SoftBreak | NodeValue::LineBreak => job.append("\n", 0.0, format.clone()),
-            NodeValue::Strong => format.font_id.size += 1.0,
-            NodeValue::Emph => format.italics = true,
-            NodeValue::Strikethrough => {
-                format.strikethrough = egui::Stroke::new(1.0_f32, format.color)
-            }
-            NodeValue::Link(_) => format.underline = egui::Stroke::new(1.0_f32, format.color),
-            NodeValue::TaskItem(task) => job.append(
-                if task.symbol.is_some() {
-                    "☑ "
-                } else {
-                    "☐ "
+fn render_inline(ui: &mut egui::Ui, node: Node<'_>, size: f32) {
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+        ui.spacing_mut().interact_size.y = size * 1.5;
+        ui.horizontal_wrapped(|ui| {
+            let mut job = egui::text::LayoutJob::default();
+            append_inline(
+                ui,
+                node,
+                &mut job,
+                egui::TextFormat {
+                    font_id: egui::FontId::new(size, egui::FontFamily::Name(PREVIEW_FONT.into())),
+                    color: PREVIEW_TEXT,
+                    line_height: Some(size * 1.5),
+                    ..Default::default()
                 },
-                0.0,
-                format.clone(),
-            ),
-            NodeValue::HtmlInline(text) => job.append(text, 0.0, format.clone()),
-            _ => {}
-        }
-        for child in node.children() {
-            append(child, job, format.clone());
+                None,
+            );
+            flush_inline(ui, &mut job, None);
+        });
+    });
+}
+
+fn flush_inline(ui: &mut egui::Ui, job: &mut egui::text::LayoutJob, link: Option<&str>) {
+    if !job.text.is_empty() {
+        let job = std::mem::take(job);
+        if let Some(url) = link {
+            ui.hyperlink_to(job, url);
+        } else {
+            ui.add(egui::Label::new(job).wrap().selectable(true));
         }
     }
-    let mut job = egui::text::LayoutJob::default();
-    append(
-        node,
-        &mut job,
-        egui::TextFormat {
-            font_id: egui::FontId::proportional(size),
-            color,
+}
+
+fn safe_link(url: &str) -> bool {
+    !url.chars().any(char::is_control)
+        && ["https://", "http://", "mailto:"].iter().any(|scheme| {
+            url.strip_prefix(scheme)
+                .is_some_and(|rest| !rest.is_empty())
+        })
+}
+
+fn append_inline(
+    ui: &mut egui::Ui,
+    node: Node<'_>,
+    job: &mut egui::text::LayoutJob,
+    mut format: egui::TextFormat,
+    link: Option<&str>,
+) {
+    match &node.data().value {
+        NodeValue::Text(text) => job.append(text, 0.0, format.clone()),
+        NodeValue::Code(code) => {
+            format.font_id = egui::FontId::monospace(format.font_id.size * 0.9);
+            format.background = SURFACE_HOVER;
+            job.append(&code.literal, 0.0, format.clone());
+        }
+        NodeValue::SoftBreak => job.append(" ", 0.0, format.clone()),
+        NodeValue::LineBreak => job.append("\n", 0.0, format.clone()),
+        NodeValue::Strong | NodeValue::Heading(_) => {
+            format.font_id.family = egui::FontFamily::Name(PREVIEW_BOLD.into());
+        }
+        NodeValue::Emph => format.italics = true,
+        NodeValue::Strikethrough => format.strikethrough = egui::Stroke::new(1.0_f32, format.color),
+        NodeValue::Link(target) => {
+            flush_inline(ui, job, link);
+            let target = safe_link(&target.url).then_some(target.url.as_str());
+            if target.is_some() {
+                format.color = super::ACCENT;
+            }
+            for child in node.children() {
+                append_inline(ui, child, job, format.clone(), target);
+            }
+            flush_inline(ui, job, target);
+            return;
+        }
+        NodeValue::Image(image) => {
+            flush_inline(ui, job, link);
+            let alt: String = node
+                .descendants()
+                .filter_map(|child| {
+                    if let NodeValue::Text(text) = &child.data().value {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let response = render_preview_image(ui, &image.url, &alt);
+            if let Some(url) = link {
+                let response = response
+                    .interact(egui::Sense::click())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .on_hover_text(url);
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Link, ui.is_enabled(), &alt)
+                });
+                if response.clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
+            }
+            return;
+        }
+        NodeValue::TaskItem(task) => job.append(
+            if task.symbol.is_some() {
+                "☑ "
+            } else {
+                "☐ "
+            },
+            0.0,
+            format.clone(),
+        ),
+        NodeValue::HtmlInline(text) => job.append(text, 0.0, format.clone()),
+        _ => {}
+    }
+    for child in node.children() {
+        append_inline(ui, child, job, format.clone(), link);
+    }
+}
+
+fn render_preview_image(ui: &mut egui::Ui, url: &str, alt: &str) -> egui::Response {
+    if !safe_link(url) || url.starts_with("mailto:") {
+        return ui
+            .label(alt)
+            .on_hover_text("Only HTTP(S) images are supported");
+    }
+    // Inspect MIME rather than the URL extension: Shields badges have no .svg suffix.
+    match ui.ctx().try_load_bytes(url) {
+        Ok(egui::load::BytesPoll::Ready { bytes, mime, .. }) => {
+            if mime.as_deref().is_some_and(|mime| mime.contains("svg"))
+                || bytes[..bytes.len().min(1024)]
+                    .windows(4)
+                    .any(|window| window == b"<svg")
+            {
+                // ponytail: SVG textures are cached for the session; add eviction for image-heavy workspaces.
+                let id = egui::Id::new(("markdown-svg", url));
+                let cached = ui.data(|data| {
+                    data.get_temp::<Result<(egui::TextureHandle, egui::Vec2), String>>(id)
+                });
+                let image = cached.unwrap_or_else(|| {
+                    let result = rasterize_svg(&bytes).map(|image| {
+                        let size = image.source_size;
+                        (
+                            ui.ctx()
+                                .load_texture(url, image, egui::TextureOptions::LINEAR),
+                            size,
+                        )
+                    });
+                    ui.data_mut(|data| data.insert_temp(id, result.clone()));
+                    result
+                });
+                match image {
+                    Ok((texture, size)) => ui.add(
+                        egui::Image::from_texture((texture.id(), size))
+                            .max_width(ui.available_width())
+                            .alt_text(alt),
+                    ),
+                    Err(error) => ui.label(alt).on_hover_text(error),
+                }
+            } else {
+                ui.add(
+                    egui::Image::new(url)
+                        .max_width(ui.available_width())
+                        .alt_text(alt),
+                )
+            }
+        }
+        Ok(egui::load::BytesPoll::Pending { .. }) => ui.label(alt).on_hover_text("Loading image…"),
+        Err(error) => ui.label(alt).on_hover_text(error.to_string()),
+    }
+}
+
+fn rasterize_svg(bytes: &[u8]) -> Result<egui::ColorImage, String> {
+    static OPTIONS: OnceLock<resvg::usvg::Options<'static>> = OnceLock::new();
+    let options = OPTIONS.get_or_init(|| {
+        let mut options = resvg::usvg::Options {
+            font_family: "Noto Sans".into(),
             ..Default::default()
-        },
+        };
+        options.fontdb_mut().load_font_data(REGULAR_FONT.to_vec());
+        options.fontdb_mut().set_sans_serif_family("Noto Sans");
+        options.fontdb_mut().set_serif_family("Noto Sans");
+        // Remote SVGs must not read local files, including nested image resources.
+        options.image_href_resolver.resolve_string = Box::new(|_, _| None);
+        options.image_href_resolver.resolve_data = Box::new(|_, _, _| None);
+        options
+    });
+    let tree = resvg::usvg::Tree::from_data(bytes, options).map_err(|error| error.to_string())?;
+    let size = egui::vec2(tree.size().width(), tree.size().height());
+    let scale = 2.0_f32.min(4096.0 / size.x.max(size.y));
+    let mut pixels = resvg::tiny_skia::Pixmap::new(
+        (size.x * scale).ceil() as u32,
+        (size.y * scale).ceil() as u32,
+    )
+    .ok_or_else(|| "Invalid SVG dimensions".to_owned())?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixels.as_mut(),
     );
-    job
+    Ok(egui::ColorImage::from_rgba_premultiplied(
+        [pixels.width() as usize, pixels.height() as usize],
+        pixels.data(),
+    )
+    .with_source_size(size))
 }
 
 fn code_job(code: &str, language: &str) -> egui::text::LayoutJob {
@@ -636,7 +878,8 @@ fn code_job(code: &str, language: &str) -> egui::text::LayoutJob {
                         text,
                         0.0,
                         egui::TextFormat {
-                            font_id: egui::FontId::monospace(14.0),
+                            font_id: egui::FontId::monospace(15.0),
+                            line_height: Some(22.0),
                             color: egui::Color32::from_rgb(
                                 style.foreground.r,
                                 style.foreground.g,
@@ -651,7 +894,8 @@ fn code_job(code: &str, language: &str) -> egui::text::LayoutJob {
                 line,
                 0.0,
                 egui::TextFormat {
-                    font_id: egui::FontId::monospace(14.0),
+                    font_id: egui::FontId::monospace(15.0),
+                    line_height: Some(22.0),
                     ..Default::default()
                 },
             ),
@@ -663,25 +907,142 @@ fn code_job(code: &str, language: &str) -> egui::text::LayoutJob {
 #[cfg(test)]
 #[test]
 fn preview_parses_markdown_and_highlights_fenced_code() {
-    let arena = Arena::new();
-    let document = comrak::parse_document(
-        &arena,
-        "# Title\n\n**bold** and `code`\n",
-        &Options::default(),
-    );
-    let heading = document.first_child().unwrap();
-    assert_eq!(
-        inline_job(heading, 24.0, egui::Color32::WHITE).text,
-        "Title"
-    );
-    let paragraph = heading.next_sibling().unwrap();
-    let job = inline_job(paragraph, 14.0, egui::Color32::WHITE);
-    assert_eq!(job.text, "bold and code");
+    let context = egui::Context::default();
+    super::configure_theme(&context);
+    configure_preview(&context);
+    let badge = br#"<svg xmlns="http://www.w3.org/2000/svg" width="90" height="20"><text x="4" y="15" fill="white" font-family="Verdana" font-size="12">passing</text></svg>"#;
+    let pixels = rasterize_svg(badge).unwrap();
+    assert_eq!(pixels.source_size, egui::vec2(90.0, 20.0));
     assert!(
-        job.sections
-            .iter()
-            .any(|section| section.format.font_id.family == egui::FontFamily::Monospace)
+        pixels.pixels.iter().any(|pixel| pixel.a() != 0),
+        "SVG text must render without system fonts"
     );
+    assert!(rasterize_svg(b"not SVG").is_err());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("private.png");
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
+        .save(&path)
+        .unwrap();
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><image href="{}" width="20" height="20"/></svg>"#,
+        path.display()
+    );
+    assert!(
+        rasterize_svg(svg.as_bytes())
+            .unwrap()
+            .pixels
+            .iter()
+            .all(|pixel| pixel.a() == 0)
+    );
+    assert!(safe_link("https://example.com"));
+    assert!(!safe_link("javascript:alert(1)"));
+    assert!(!safe_link("file:///etc/passwd"));
+    assert!(!safe_link("https://example.com\n"));
+    context.include_bytes("https://example.com/badge", badge.as_slice());
+    // Prefer the in-memory fixture over HTTP so this check never uses the network.
+    context.add_bytes_loader(context.loaders().include.clone());
+    let markdown = "# Title\n\n[![Badge](https://example.com/badge)](https://example.com/release)\n[![Badge](https://example.com/badge)](https://example.com/release)\n\nOne soft\nline with **bold** and `code`.\n\n## Quick Start\n\n```bash\ncargo run\n```\n\n* `-x`  extract the files  \n* archive‑creation\n\nhard  \nbreak\n\n---\n";
+    let mut width = 0.0;
+    let mut frame = |events| {
+        context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 900.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                width = ui.available_width();
+                render_markdown_preview(ui, markdown);
+            },
+        )
+    };
+    frame(vec![]);
+    let output = frame(vec![]);
+    let jobs: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|shape| {
+            if let egui::Shape::Text(text) = &shape.shape {
+                Some(&text.galley.job)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let paragraph = jobs
+        .iter()
+        .find(|job| job.text == "One soft line with bold and code.")
+        .unwrap();
+    assert!(
+        paragraph
+            .sections
+            .iter()
+            .any(
+                |section| &paragraph.text[section.byte_range.clone()] == "bold"
+                    && section.format.font_id.family == egui::FontFamily::Name(PREVIEW_BOLD.into())
+            )
+    );
+    assert!(
+        paragraph
+            .sections
+            .iter()
+            .any(
+                |section| &paragraph.text[section.byte_range.clone()] == "code"
+                    && section.format.background == SURFACE_HOVER
+            )
+    );
+    assert!(jobs.iter().any(|job| job.text == "hard\nbreak"));
+    assert!(jobs.iter().any(|job| job.text == "-x  extract the files"));
+    assert!(jobs.iter().any(|job| job.text == "archive‑creation"));
+    let heading = jobs.iter().find(|job| job.text == "Title").unwrap();
+    assert_eq!(heading.sections[0].format.font_id.size, 28.0);
+    assert_eq!(
+        heading.sections[0].format.font_id.family,
+        egui::FontFamily::Name(PREVIEW_BOLD.into())
+    );
+    let badge_texture = context
+        .data(|data| {
+            data.get_temp::<Result<(egui::TextureHandle, egui::Vec2), String>>(egui::Id::new((
+                "markdown-svg",
+                "https://example.com/badge",
+            )))
+        })
+        .unwrap()
+        .unwrap()
+        .0;
+    let badges: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|shape| {
+            if let egui::Shape::Rect(rect) = &shape.shape {
+                (rect.fill_texture_id() == badge_texture.id()).then_some(rect.rect)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(badges.len(), 2);
+    assert_eq!(badges[0].top(), badges[1].top());
+    assert!(badges[1].left() >= badges[0].right());
+    let pos = badges[0].center();
+    frame(vec![egui::Event::PointerMoved(pos)]);
+    frame(vec![egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    let clicked = frame(vec![egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    assert!(clicked.platform_output.commands.iter().any(|command| matches!(command, egui::OutputCommand::OpenUrl(url) if url.url == "https://example.com/release")));
+    assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == SURFACE_BG && (rect.rect.width() - width).abs() < 1.0)), "code block must span the preview width");
 
     let code = code_job("fn main() {}\n", "rust");
     assert_eq!(code.text, "fn main() {}\n");
