@@ -55,7 +55,19 @@ Extensions are based on the tab type:
 - Todo tabs use `.todo.json`.
 - Calendar tabs use `.calendar.json`.
 
-Markdown files are plain text. Kanban, todo, and calendar files are JSON data
+A Markdown tab can contain multiple files. Its optional `markdown_files` array
+stores ordered entries with `id`, `title`, `file_name`, and `collapsed`. Each body
+is plain text in a separate `.md` file, never in `config.json`. New files use UUID
+filenames; editing a title does not move the file. Preview mode is session-only.
+
+If `markdown_files` is absent, the tab's existing `file_name` and `title` form its
+first entry. The array is written on the first edit without moving that file.
+Once present, the array is authoritative, including an empty array; the legacy
+`file_name` is no longer used. Removing an entry keeps its file unless the user
+confirms **Remove local content files**. Backup and restore include all files
+under `content/` and validate every active entry's path.
+
+Kanban, todo, and calendar files are JSON data
 with their own `version: 1` schema version.
 
 ## Schema Version

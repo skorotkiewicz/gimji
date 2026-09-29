@@ -9,45 +9,128 @@ use syntect::{
     easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet, util::LinesWithEndings,
 };
 
-use super::{SURFACE_BG, SURFACE_LOW, panel_frame};
+use crate::models::MarkdownDocument;
 
-const MARKDOWN_MIN_VISIBLE_ROWS: usize = 24;
+use super::{SURFACE_BG, SURFACE_LOW, TEXT_MUTED, panel_frame};
 
-pub(super) fn render_markdown(ui: &mut egui::Ui, markdown: &mut String) -> bool {
-    let id = ui.make_persistent_id("markdown-preview");
-    let mut preview = ui.data(|data| data.get_temp::<bool>(id).unwrap_or(false));
-    if ui.selectable_label(preview, "Preview").clicked() {
-        preview = !preview;
-        ui.data_mut(|data| data.insert_temp(id, preview));
+const MARKDOWN_MIN_VISIBLE_ROWS: usize = 4;
+
+pub(super) fn render_markdown(
+    ui: &mut egui::Ui,
+    documents: &mut Vec<MarkdownDocument>,
+) -> (bool, Option<String>) {
+    let mut dirty = false;
+    let mut remove = None;
+    if ui.button("+ Markdown").clicked() {
+        documents.push(MarkdownDocument::new("Untitled"));
+        dirty = true;
     }
-
-    panel_frame(SURFACE_LOW)
+    egui::ScrollArea::vertical()
+        .id_salt("markdown-files-scroll")
+        .auto_shrink([false, false])
         .show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("markdown-editor-scroll")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    if preview {
-                        render_markdown_preview(ui, markdown);
-                        false
-                    } else {
-                        let desired_rows = markdown_editor_desired_rows(markdown);
-                        let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
-                        let editor_height = row_height * desired_rows as f32;
-                        ui.add_sized(
-                            egui::vec2(ui.available_width(), editor_height),
-                            egui::TextEdit::multiline(markdown)
-                                .font(egui::TextStyle::Monospace)
-                                .hint_text("Write markdown...")
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(desired_rows),
-                        )
-                        .changed()
-                    }
-                })
-                .inner
-        })
-        .inner
+            for document in documents {
+                ui.push_id(&document.file.id, |ui| {
+                    let preview_id = ui.make_persistent_id("preview");
+                    let mut preview =
+                        ui.data(|data| data.get_temp::<bool>(preview_id).unwrap_or(false));
+                    panel_frame(SURFACE_LOW).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .small_button(if document.file.collapsed {
+                                    "▶"
+                                } else {
+                                    "▼"
+                                })
+                                .on_hover_text(if document.file.collapsed {
+                                    "Expand"
+                                } else {
+                                    "Collapse"
+                                })
+                                .clicked()
+                            {
+                                document.file.collapsed = !document.file.collapsed;
+                                dirty = true;
+                            }
+                            dirty |= ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut document.file.title)
+                                        .id_salt("title")
+                                        .hint_text("Untitled")
+                                        .desired_width((ui.available_width() - 160.0).max(80.0)),
+                                )
+                                .changed();
+                            if ui.selectable_label(preview, "Preview").clicked() {
+                                preview = !preview;
+                                ui.data_mut(|data| data.insert_temp(preview_id, preview));
+                                if document.file.collapsed {
+                                    document.file.collapsed = false;
+                                    dirty = true;
+                                }
+                            }
+                            if ui.button("Remove").clicked() {
+                                remove = Some(document.file.id.clone());
+                            }
+                        });
+                        if !document.file.collapsed {
+                            ui.add_space(4.0);
+                            if preview {
+                                render_markdown_preview(ui, &document.text);
+                            } else {
+                                dirty |= render_numbered_editor(ui, &mut document.text);
+                            }
+                        }
+                    });
+                });
+            }
+        });
+    (dirty, remove)
+}
+
+fn render_numbered_editor(ui: &mut egui::Ui, text: &mut String) -> bool {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let line_count = text.split('\n').count();
+    let gutter_width = ui
+        .painter()
+        .layout_no_wrap(line_count.to_string(), font.clone(), TEXT_MUTED)
+        .size()
+        .x
+        + 12.0;
+    ui.horizontal_top(|ui| {
+        let (gutter, _) =
+            ui.allocate_exact_size(egui::vec2(gutter_width, 0.0), egui::Sense::hover());
+        let desired_rows = markdown_editor_desired_rows(text);
+        let output = egui::TextEdit::multiline(text)
+            .id_salt("body")
+            .font(font.clone())
+            .hint_text("Write markdown...")
+            .desired_width(f32::INFINITY)
+            .desired_rows(desired_rows)
+            .show(ui);
+        for (number, y) in line_number_positions(&output.galley) {
+            ui.painter().text(
+                egui::pos2(gutter.right() - 4.0, output.galley_pos.y + y),
+                egui::Align2::RIGHT_TOP,
+                number.to_string(),
+                font.clone(),
+                TEXT_MUTED,
+            );
+        }
+        output.response.changed()
+    })
+    .inner
+}
+
+fn line_number_positions(galley: &egui::Galley) -> Vec<(usize, f32)> {
+    let mut numbers = Vec::new();
+    let mut start_of_line = true;
+    for row in &galley.rows {
+        if start_of_line {
+            numbers.push((numbers.len() + 1, row.pos.y));
+        }
+        start_of_line = row.ends_with_newline;
+    }
+    numbers
 }
 
 fn render_markdown_preview(ui: &mut egui::Ui, markdown: &str) {
@@ -250,5 +333,44 @@ fn preview_parses_markdown_and_highlights_fenced_code() {
 }
 
 pub(super) fn markdown_editor_desired_rows(markdown: &str) -> usize {
-    markdown.lines().count().max(MARKDOWN_MIN_VISIBLE_ROWS)
+    markdown.split('\n').count().max(MARKDOWN_MIN_VISIBLE_ROWS)
+}
+
+#[cfg(test)]
+#[test]
+fn line_numbers_follow_logical_lines_including_empty_and_wrapped_lines() {
+    let context = egui::Context::default();
+    let _ = context.run_ui(egui::RawInput::default(), |ui| {
+        for text in [
+            "",
+            "a\n\n",
+            "a very long line that wraps across several rows\nnext\n",
+        ] {
+            let galley = ui.painter().layout(
+                text.to_owned(),
+                egui::FontId::monospace(14.0),
+                egui::Color32::WHITE,
+                60.0,
+            );
+            let positions = line_number_positions(&galley);
+            assert_eq!(positions.len(), text.split('\n').count());
+            for (index, (number, y)) in positions.iter().enumerate() {
+                assert_eq!(*number, index + 1);
+                if index > 0 {
+                    assert!(*y > positions[index - 1].1);
+                }
+            }
+            if text.starts_with("a very") {
+                assert!(galley.rows.len() > positions.len());
+                assert!(positions[1].1 > galley.rows[1].pos.y);
+            }
+        }
+        let mut documents = vec![
+            MarkdownDocument::new("First"),
+            MarkdownDocument::new("Second"),
+        ];
+        documents[0].text = "body\nwith two lines".to_owned();
+        documents[1].file.collapsed = true;
+        assert_eq!(render_markdown(ui, &mut documents), (false, None));
+    });
 }

@@ -43,6 +43,8 @@ pub struct Tab {
     #[serde(rename = "type")]
     pub tab_type: TabType,
     pub file_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown_files: Option<Vec<MarkdownFile>>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -56,13 +58,67 @@ impl Tab {
             title: title.into(),
             tab_type,
             file_name: file_name.into(),
+            markdown_files: None,
             created_at: now.clone(),
             updated_at: now,
         }
     }
 
+    pub fn markdown_entries(&self) -> Vec<MarkdownFile> {
+        self.markdown_files.clone().unwrap_or_else(|| {
+            vec![MarkdownFile {
+                id: self.id.clone(),
+                title: self.title.clone(),
+                file_name: self.file_name.clone(),
+                collapsed: false,
+            }]
+        })
+    }
+
+    pub fn content_files(&self) -> impl Iterator<Item = &str> {
+        let files = self
+            .markdown_files
+            .as_ref()
+            .filter(|_| self.tab_type == TabType::Markdown);
+        files
+            .into_iter()
+            .flatten()
+            .map(|file| file.file_name.as_str())
+            .chain(files.is_none().then_some(self.file_name.as_str()))
+    }
+
     pub fn touch(&mut self) {
         self.updated_at = timestamp();
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarkdownFile {
+    pub id: String,
+    pub title: String,
+    pub file_name: String,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownDocument {
+    pub file: MarkdownFile,
+    pub text: String,
+}
+
+impl MarkdownDocument {
+    pub fn new(title: &str) -> Self {
+        let id = new_id();
+        Self {
+            file: MarkdownFile {
+                file_name: format!("content/{id}.md"),
+                id,
+                title: title.to_owned(),
+                collapsed: false,
+            },
+            text: String::new(),
+        }
     }
 }
 
