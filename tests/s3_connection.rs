@@ -96,7 +96,7 @@ fn s3_backup_uploads_workspace_config_and_content_files() {
         .expect("selected tab")
         .to_owned();
     workspace
-        .save_markdown_content(&tab_id, &"backed up body".to_owned())
+        .save_markdown_content(&tab_id, "backed up body")
         .expect("save content");
     let content_key = workspace.config().notes[0].tabs[0].file_name.clone();
     let settings = storage_bucket_settings();
@@ -130,7 +130,7 @@ fn s3_restore_downloads_workspace_config_and_content_files() {
         .expect("selected tab")
         .to_owned();
     workspace
-        .save_markdown_content(&tab_id, &"restored body".to_owned())
+        .save_markdown_content(&tab_id, "restored body")
         .expect("save content");
     let settings = storage_bucket_settings();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
@@ -143,7 +143,7 @@ fn s3_restore_downloads_workspace_config_and_content_files() {
         .rename_note(&note_id, "Local Only")
         .expect("rename");
     workspace
-        .save_markdown_content(&tab_id, &"local body".to_owned())
+        .save_markdown_content(&tab_id, "local body")
         .expect("save local content");
 
     runtime

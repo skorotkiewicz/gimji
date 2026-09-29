@@ -23,7 +23,7 @@ check:
     cargo clippy --all-targets --all-features -- -D warnings
 
 test: fmt
-    cargo test
+    cargo test --all-targets --all-features
 
 install-hook:
     @printf '#!/bin/sh\nset -e\njust check\n' > .git/hooks/pre-commit

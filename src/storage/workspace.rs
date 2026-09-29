@@ -4,7 +4,8 @@ use std::path::{Component, Path, PathBuf};
 use crate::Result;
 use crate::errors::AppError;
 use crate::models::{
-    AppConfig, CalendarData, KanbanBoard, MarkdownContent, Note, Tab, TabType, TodoList,
+    AppConfig, CalendarData, KanbanBoard, MarkdownDocument, MarkdownFile, Note, Tab, TabType,
+    TodoList,
 };
 use crate::storage::atomic::atomic_write;
 
@@ -65,7 +66,9 @@ impl Workspace {
 
         for note in &config.notes {
             for tab in &note.tabs {
-                validate_relative_content_path(&tab.file_name)?;
+                for path in tab.content_files() {
+                    validate_relative_content_path(path)?;
+                }
             }
         }
 
@@ -114,6 +117,7 @@ impl Workspace {
             title: "Markdown".to_owned(),
             tab_type: TabType::Markdown,
             file_name,
+            markdown_files: None,
             created_at: crate::models::config::timestamp(),
             updated_at: crate::models::config::timestamp(),
         };
@@ -145,6 +149,7 @@ impl Workspace {
             title: title.to_owned(),
             tab_type,
             file_name,
+            markdown_files: None,
             created_at: crate::models::config::timestamp(),
             updated_at: crate::models::config::timestamp(),
         };
@@ -185,7 +190,8 @@ impl Workspace {
             Some(
                 note.tabs
                     .iter()
-                    .map(|tab| self.content_path(tab))
+                    .flat_map(Tab::content_files)
+                    .map(|path| self.validated_content_path(path))
                     .collect::<Result<Vec<_>>>()?,
             )
         } else {
@@ -221,7 +227,11 @@ impl Workspace {
     pub fn delete_tab(&mut self, tab_id: &str, options: DeleteOptions) -> Result<()> {
         let content_paths = if options.remove_local_files {
             let tab = self.find_tab(tab_id)?;
-            Some(vec![self.content_path(tab)?])
+            Some(
+                tab.content_files()
+                    .map(|path| self.validated_content_path(path))
+                    .collect::<Result<Vec<_>>>()?,
+            )
         } else {
             None
         };
@@ -258,7 +268,7 @@ impl Workspace {
         self.save_config()
     }
 
-    pub fn save_markdown_content(&self, tab_id: &str, content: &MarkdownContent) -> Result<()> {
+    pub fn save_markdown_content(&self, tab_id: &str, content: &str) -> Result<()> {
         let tab = self.find_tab(tab_id)?;
         if tab.tab_type != TabType::Markdown {
             return Err(AppError::WrongContentType {
@@ -266,7 +276,15 @@ impl Workspace {
                 actual: "markdown",
             });
         }
-        self.write_text_content(tab, content)
+        let file = tab
+            .markdown_entries()
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::InvalidPath("Markdown tab has no files".to_owned()))?;
+        atomic_write(
+            &self.validated_content_path(&file.file_name)?,
+            content.as_bytes(),
+        )
     }
 
     pub fn save_kanban_content(&self, tab_id: &str, board: &KanbanBoard) -> Result<()> {
@@ -302,7 +320,7 @@ impl Workspace {
         self.write_json_content(tab, calendar)
     }
 
-    pub fn load_markdown_content(&self, tab_id: &str) -> Result<MarkdownContent> {
+    pub fn load_markdown_content(&self, tab_id: &str) -> Result<String> {
         let tab = self.find_tab(tab_id)?;
         if tab.tab_type != TabType::Markdown {
             return Err(AppError::WrongContentType {
@@ -310,7 +328,93 @@ impl Workspace {
                 actual: tab.tab_type.as_str(),
             });
         }
-        self.read_text_content(tab)
+        let file = tab
+            .markdown_entries()
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::InvalidPath("Markdown tab has no files".to_owned()))?;
+        let path = self.validated_content_path(&file.file_name)?;
+        fs::read_to_string(&path).map_err(|source| AppError::io(&path, source))
+    }
+
+    pub fn load_markdown_documents(&self, tab_id: &str) -> Result<Vec<MarkdownDocument>> {
+        let tab = self.markdown_tab(tab_id)?;
+        tab.markdown_entries()
+            .into_iter()
+            .map(|file| {
+                let path = self.validated_content_path(&file.file_name)?;
+                let text =
+                    fs::read_to_string(&path).map_err(|source| AppError::io(&path, source))?;
+                Ok(MarkdownDocument { file, text })
+            })
+            .collect()
+    }
+
+    pub fn save_markdown_documents(
+        &mut self,
+        tab_id: &str,
+        documents: &[MarkdownDocument],
+    ) -> Result<()> {
+        self.markdown_tab(tab_id)?;
+        // Validate the whole set before writing any file.
+        let paths = documents
+            .iter()
+            .map(|document| self.validated_content_path(&document.file.file_name))
+            .collect::<Result<Vec<_>>>()?;
+        // ponytail: save all documents; track per-file dirtiness if large tabs make autosave slow.
+        for (document, path) in documents.iter().zip(paths) {
+            atomic_write(&path, document.text.as_bytes())?;
+        }
+        self.set_markdown_files(
+            tab_id,
+            documents
+                .iter()
+                .map(|document| document.file.clone())
+                .collect(),
+        )
+    }
+
+    pub fn remove_markdown_document(
+        &mut self,
+        tab_id: &str,
+        file_id: &str,
+        options: DeleteOptions,
+    ) -> Result<()> {
+        let mut files = self.markdown_tab(tab_id)?.markdown_entries();
+        let index = files
+            .iter()
+            .position(|file| file.id == file_id)
+            .ok_or_else(|| AppError::InvalidPath(format!("Markdown file not found: {file_id}")))?;
+        let path = self.validated_content_path(&files.remove(index).file_name)?;
+        // Commit removal first: a failed config write must never delete content.
+        self.set_markdown_files(tab_id, files)?;
+        if options.remove_local_files {
+            self.remove_local_files(&[path])?;
+        }
+        Ok(())
+    }
+
+    fn markdown_tab(&self, tab_id: &str) -> Result<&Tab> {
+        let tab = self.find_tab(tab_id)?;
+        if tab.tab_type != TabType::Markdown {
+            return Err(AppError::WrongContentType {
+                expected: "markdown",
+                actual: tab.tab_type.as_str(),
+            });
+        }
+        Ok(tab)
+    }
+
+    fn set_markdown_files(&mut self, tab_id: &str, files: Vec<MarkdownFile>) -> Result<()> {
+        let old_config = self.config.clone();
+        let tab = self.find_tab_mut(tab_id)?;
+        tab.markdown_files = Some(files);
+        tab.touch();
+        if let Err(error) = self.save_config() {
+            self.config = old_config;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn load_kanban_content(&self, tab_id: &str) -> Result<KanbanBoard> {
@@ -362,11 +466,6 @@ impl Workspace {
         }
     }
 
-    fn read_text_content(&self, tab: &Tab) -> Result<String> {
-        let path = self.content_path(tab)?;
-        fs::read_to_string(&path).map_err(|source| AppError::io(&path, source))
-    }
-
     fn write_text_content(&self, tab: &Tab, text: &str) -> Result<()> {
         let path = self.content_path(tab)?;
         atomic_write(&path, text.as_bytes())
@@ -386,8 +485,12 @@ impl Workspace {
     }
 
     fn content_path(&self, tab: &Tab) -> Result<PathBuf> {
-        validate_relative_content_path(&tab.file_name)?;
-        Ok(self.root.join(&tab.file_name))
+        self.validated_content_path(&tab.file_name)
+    }
+
+    fn validated_content_path(&self, file_name: &str) -> Result<PathBuf> {
+        validate_relative_content_path(file_name)?;
+        Ok(self.root.join(file_name))
     }
 
     fn remove_local_files(&self, paths: &[PathBuf]) -> Result<()> {

@@ -464,12 +464,13 @@ fn validate_restore_payload(
 
     for note in &config.notes {
         for tab in &note.tabs {
-            validate_relative_content_path(&tab.file_name)?;
-            if !content_keys.contains(tab.file_name.as_str()) {
-                return Err(AppError::InvalidPath(format!(
-                    "missing restored content file: {}",
-                    tab.file_name
-                )));
+            for path in tab.content_files() {
+                validate_relative_content_path(path)?;
+                if !content_keys.contains(path) {
+                    return Err(AppError::InvalidPath(format!(
+                        "missing restored content file: {path}"
+                    )));
+                }
             }
         }
     }
@@ -645,12 +646,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn restore_validates_all_markdown_entries_and_supports_empty_tabs() {
+        let mut config: AppConfig =
+            serde_json::from_slice(&config_bytes_for_content_file("content/legacy.md")).unwrap();
+        let document = crate::models::MarkdownDocument::new("Second");
+        config.notes[0].tabs[0].markdown_files = Some(vec![document.file.clone()]);
+        let bytes = serde_json::to_vec(&config).unwrap();
+        assert!(validate_restore_payload(&bytes, &[]).is_err());
+        let objects = vec![(document.file.file_name, b"body".to_vec())];
+        assert!(validate_restore_payload(&bytes, &objects).is_ok());
+        config.notes[0].tabs[0].markdown_files = Some(vec![]);
+        assert!(validate_restore_payload(&serde_json::to_vec(&config).unwrap(), &[]).is_ok());
+    }
+
     fn config_bytes_for_content_file(file_name: &str) -> Vec<u8> {
         let tab = Tab {
             id: "tab".to_owned(),
             title: "Markdown".to_owned(),
             tab_type: TabType::Markdown,
             file_name: file_name.to_owned(),
+            markdown_files: None,
             created_at: "2026-06-15T00:00:00Z".to_owned(),
             updated_at: "2026-06-15T00:00:00Z".to_owned(),
         };

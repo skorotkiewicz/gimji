@@ -5,12 +5,13 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use crate::models::{CalendarData, KanbanBoard, MarkdownContent, TabType, TodoList};
+use crate::models::{CalendarData, KanbanBoard, MarkdownDocument, TabType, TodoList};
 #[cfg(feature = "s3")]
 use crate::storage::S3ConnectionSettings;
 use crate::storage::{DeleteOptions, Workspace};
 
 mod editors;
+mod markdown;
 mod recent;
 mod sidebar;
 mod tabs;
@@ -78,7 +79,7 @@ fn selected_content_for_workspace(
 
     let tab = workspace.find_tab(&tab_id)?;
     let content = match tab.tab_type {
-        TabType::Markdown => LoadedContent::Markdown(workspace.load_markdown_content(&tab_id)?),
+        TabType::Markdown => LoadedContent::Markdown(workspace.load_markdown_documents(&tab_id)?),
         TabType::Kanban => LoadedContent::Kanban(workspace.load_kanban_content(&tab_id)?),
         TabType::Todo => LoadedContent::Todo(workspace.load_todo_content(&tab_id)?),
         TabType::Calendar => LoadedContent::Calendar(workspace.load_calendar_content(&tab_id)?),
@@ -143,6 +144,7 @@ struct GimjiApp {
 impl GimjiApp {
     fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         configure_theme(&creation_context.egui_ctx);
+        markdown::configure_preview(&creation_context.egui_ctx);
         #[cfg(feature = "s3")]
         let initial_s3_settings = initial_s3_connection_settings_from_environment();
 
@@ -193,7 +195,9 @@ impl GimjiApp {
     }
 
     fn open_workspace(&mut self, path: PathBuf) {
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
         self.renaming_tab = false;
         self.rename_tab_id = None;
         match Workspace::open(&path) {
@@ -211,7 +215,9 @@ impl GimjiApp {
     }
 
     fn create_workspace(&mut self, path: PathBuf) {
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
         self.renaming_tab = false;
         self.rename_tab_id = None;
         match Workspace::create(&path) {
@@ -271,7 +277,9 @@ impl GimjiApp {
     }
 
     fn select_note(&mut self, note_id: String) {
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
         self.renaming_tab = false;
         self.rename_tab_id = None;
         if let Some(workspace) = &mut self.workspace {
@@ -287,7 +295,9 @@ impl GimjiApp {
     }
 
     fn select_tab(&mut self, tab_id: String) {
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
         self.renaming_tab = false;
         self.rename_tab_id = None;
         if let Some(workspace) = &mut self.workspace {
@@ -307,7 +317,9 @@ impl GimjiApp {
             return;
         }
 
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
         if let Some(workspace) = &mut self.workspace {
             match workspace.add_note(&title) {
                 Ok(_) => {
@@ -330,7 +342,9 @@ impl GimjiApp {
             return;
         };
 
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
         if let Some(workspace) = &mut self.workspace {
             match workspace.add_tab(&note_id, tab_type.label(), tab_type) {
                 Ok(tab_id) => {
@@ -456,14 +470,15 @@ impl GimjiApp {
         }
     }
 
-    fn flush_current(&mut self) {
+    fn flush_current(&mut self) -> bool {
         if self.loaded.as_ref().is_some_and(|loaded| loaded.dirty) {
             self.save_current();
         }
+        !self.loaded.as_ref().is_some_and(|loaded| loaded.dirty)
     }
 
     fn save_current(&mut self) {
-        let Some(workspace) = &self.workspace else {
+        let Some(workspace) = &mut self.workspace else {
             return;
         };
         let Some(loaded) = &mut self.loaded else {
@@ -473,7 +488,7 @@ impl GimjiApp {
         self.save_status = SaveStatus::Saving;
         let result = match &mut loaded.content {
             LoadedContent::Markdown(markdown) => {
-                workspace.save_markdown_content(&loaded.tab_id, markdown)
+                workspace.save_markdown_documents(&loaded.tab_id, markdown)
             }
             LoadedContent::Kanban(board) => workspace.save_kanban_content(&loaded.tab_id, board),
             LoadedContent::Todo(todo) => workspace.save_todo_content(&loaded.tab_id, todo),
@@ -601,7 +616,9 @@ impl GimjiApp {
 
     #[cfg(feature = "s3")]
     fn backup_workspace_to_s3(&mut self) {
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
 
         let Some(workspace) = self.workspace.as_ref() else {
             self.message = Some("Open a workspace before backing up to S3.".to_owned());
@@ -633,7 +650,9 @@ impl GimjiApp {
 
     #[cfg(feature = "s3")]
     fn restore_workspace_from_s3(&mut self) {
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
 
         let Some(root) = self
             .workspace
@@ -695,7 +714,9 @@ impl GimjiApp {
             DeleteOptions::default()
         };
 
-        self.flush_current();
+        if !self.flush_current() {
+            return;
+        }
         match action {
             ConfirmAction::DeleteNote(note_id) => {
                 if let Some(workspace) = &mut self.workspace {
@@ -724,6 +745,16 @@ impl GimjiApp {
                     }
                 }
             }
+            ConfirmAction::DeleteMarkdown(tab_id, file_id) => {
+                if let Some(workspace) = &mut self.workspace {
+                    let result = workspace.remove_markdown_document(&tab_id, &file_id, options);
+                    self.loaded = None;
+                    self.load_selected_content();
+                    if let Err(error) = result {
+                        self.set_error(error.to_string());
+                    }
+                }
+            }
             #[cfg(feature = "s3")]
             ConfirmAction::RestoreWorkspaceFromS3 => {
                 self.restore_workspace_from_s3();
@@ -743,6 +774,9 @@ impl GimjiApp {
             ConfirmAction::DeleteTab(_) => {
                 "Delete this tab from config? Content file stays on disk."
             }
+            ConfirmAction::DeleteMarkdown(_, _) => {
+                "Remove this Markdown file from the tab? Its content stays on disk unless checked below."
+            }
             #[cfg(feature = "s3")]
             ConfirmAction::RestoreWorkspaceFromS3 => {
                 "Restore this workspace from S3? Local config and content files will be overwritten."
@@ -755,7 +789,9 @@ impl GimjiApp {
         };
         let show_remove_local_files = matches!(
             action,
-            ConfirmAction::DeleteNote(_) | ConfirmAction::DeleteTab(_)
+            ConfirmAction::DeleteNote(_)
+                | ConfirmAction::DeleteTab(_)
+                | ConfirmAction::DeleteMarkdown(_, _)
         );
 
         egui::Window::new("Confirm")
@@ -885,8 +921,18 @@ impl GimjiApp {
             return;
         };
 
+        let mut remove_markdown = None;
         let dirty = match &mut loaded.content {
-            LoadedContent::Markdown(markdown) => editors::render_markdown(ui, markdown),
+            LoadedContent::Markdown(documents) => {
+                let (dirty, remove) = ui
+                    .push_id(&loaded.tab_id, |ui| {
+                        markdown::render_markdown(ui, documents)
+                    })
+                    .inner;
+                remove_markdown = remove
+                    .map(|file_id| ConfirmAction::DeleteMarkdown(loaded.tab_id.clone(), file_id));
+                dirty
+            }
             LoadedContent::Kanban(board) => editors::render_kanban(ui, board),
             LoadedContent::Todo(todo) => editors::render_todo(ui, todo, &loaded.tab_id),
             LoadedContent::Calendar(calendar) => editors::render_calendar(ui, calendar),
@@ -894,6 +940,9 @@ impl GimjiApp {
 
         if dirty {
             self.mark_dirty();
+        }
+        if let Some(action) = remove_markdown {
+            self.request_delete(action);
         }
     }
 }
@@ -908,7 +957,7 @@ struct LoadedTab {
 
 #[derive(Debug, PartialEq)]
 enum LoadedContent {
-    Markdown(MarkdownContent),
+    Markdown(Vec<MarkdownDocument>),
     Kanban(KanbanBoard),
     Todo(TodoList),
     Calendar(CalendarData),
@@ -960,6 +1009,7 @@ impl S3ConnectionStatus {
 enum ConfirmAction {
     DeleteNote(String),
     DeleteTab(String),
+    DeleteMarkdown(String, String),
     #[cfg(feature = "s3")]
     RestoreWorkspaceFromS3,
 }
@@ -1016,6 +1066,36 @@ fn note_header_action_area_size(width: f32) -> egui::Vec2 {
     egui::vec2(width, NOTE_HEADER_ACTION_HEIGHT)
 }
 
+fn paint_add_icon(ui: &egui::Ui, response: &egui::Response, label: &str) {
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    let center = response.rect.center();
+    let stroke = ui.style().interact(response).fg_stroke;
+    for axis in [egui::vec2(4.0, 0.0), egui::vec2(0.0, 4.0)] {
+        ui.painter()
+            .line_segment([center - axis, center + axis], stroke);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn add_icon_is_centered() {
+    let context = egui::Context::default();
+    let _ = context.run_ui(egui::RawInput::default(), |ui| {
+        let response = ui.add_sized([32.0, 30.0], egui::Button::new(""));
+        paint_add_icon(ui, &response, "Add");
+        let mut strokes = 0;
+        ui.painter().for_each_shape(|shape| {
+            if let egui::Shape::LineSegment { points, .. } = &shape.shape {
+                assert_eq!(points[0].lerp(points[1], 0.5), response.rect.center());
+                strokes += 1;
+            }
+        });
+        assert_eq!(strokes, 2);
+    });
+}
+
 fn panel_frame(fill: egui::Color32) -> egui::Frame {
     egui::Frame::new()
         .fill(fill)
@@ -1066,11 +1146,12 @@ fn render_status_strip(
             );
             ui.separator();
             if let Some(tab) = selected_tab {
-                ui.label(
-                    egui::RichText::new(format!("{}: {}", tab.tab_type.as_str(), tab.file_name))
-                        .small()
-                        .color(TEXT_MUTED),
-                );
+                let content_label = if tab.tab_type == TabType::Markdown {
+                    format!("markdown: {} files", tab.content_files().count())
+                } else {
+                    format!("{}: {}", tab.tab_type.as_str(), tab.file_name)
+                };
+                ui.label(egui::RichText::new(content_label).small().color(TEXT_MUTED));
             }
         });
     });
@@ -1088,8 +1169,9 @@ mod tests {
     use super::editors::{
         KANBAN_CARD_TEXT_HEIGHT, KANBAN_CARD_TEXT_WIDTH, KANBAN_COLUMN_WIDTH,
         kanban_card_text_area_size, kanban_column_area_size, kanban_column_header_action_area_size,
-        kanban_scroll_axes, markdown_editor_desired_rows, new_calendar_event, new_todo_item,
+        kanban_scroll_axes, new_calendar_event, new_todo_item,
     };
+    use super::markdown::markdown_editor_desired_rows;
     #[cfg(feature = "s3")]
     use super::{ConfirmAction, S3ConnectionStatus, initial_s3_connection_settings};
     use super::{
@@ -1116,7 +1198,7 @@ mod tests {
             .join("\n");
 
         assert_eq!(markdown_editor_desired_rows(&markdown), 80);
-        assert_eq!(markdown_editor_desired_rows("short note"), 24);
+        assert_eq!(markdown_editor_desired_rows("short note"), 4);
     }
 
     #[test]
@@ -1130,7 +1212,7 @@ mod tests {
             .to_owned();
 
         workspace
-            .save_markdown_content(&tab_id, &"# Selected project".to_owned())
+            .save_markdown_content(&tab_id, "# Selected project")
             .expect("save selected content");
 
         let selection =
@@ -1139,10 +1221,51 @@ mod tests {
         assert_eq!(
             selection,
             SelectedContent::Loaded {
-                tab_id,
+                tab_id: tab_id.clone(),
                 tab_type: TabType::Markdown,
-                content: LoadedContent::Markdown("# Selected project".to_owned())
+                content: LoadedContent::Markdown(
+                    workspace.load_markdown_documents(&tab_id).unwrap()
+                )
             }
+        );
+    }
+
+    #[test]
+    fn failed_markdown_save_keeps_edits_when_switching_tabs_or_removing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut workspace = Workspace::create(dir.path()).unwrap();
+        let note_id = workspace.add_note("Notes").unwrap();
+        let tab_id = workspace.selected_tab_id().unwrap().to_owned();
+        let other_tab = workspace.add_tab(&note_id, "Other", TabType::Todo).unwrap();
+        workspace.select_tab(&tab_id).unwrap();
+        let mut app = app_with_workspace(workspace);
+        app.load_selected_content();
+        let LoadedContent::Markdown(documents) = &mut app.loaded.as_mut().unwrap().content else {
+            panic!("Markdown expected")
+        };
+        documents[0].text = "unsaved edits".to_owned();
+        let file_id = documents[0].file.id.clone();
+        app.mark_dirty();
+        std::fs::create_dir(dir.path().join("config.tmp")).unwrap();
+        app.select_tab(other_tab);
+        assert_eq!(app.loaded.as_ref().unwrap().tab_id, tab_id);
+        assert!(app.loaded.as_ref().unwrap().dirty);
+        assert!(matches!(app.save_status, SaveStatus::Error(_)));
+        app.request_delete(super::ConfirmAction::DeleteMarkdown(
+            tab_id.clone(),
+            file_id,
+        ));
+        app.remove_local_files_on_delete = true;
+        app.confirm_action();
+        assert!(app.loaded.as_ref().unwrap().dirty);
+        let workspace = app.workspace.as_ref().unwrap();
+        assert_eq!(
+            workspace.load_markdown_content(&tab_id).unwrap(),
+            "unsaved edits"
+        );
+        assert_eq!(
+            workspace.find_tab(&tab_id).unwrap().content_files().count(),
+            1
         );
     }
 
