@@ -15,6 +15,7 @@ use crate::models::MarkdownDocument;
 use super::{SURFACE_BG, SURFACE_HOVER, SURFACE_LOW, TEXT_MUTED, panel_frame};
 
 const MARKDOWN_MIN_VISIBLE_ROWS: usize = 4;
+const EDITOR_ACTIVE_TEXT: egui::Color32 = egui::Color32::from_gray(220);
 
 #[derive(Clone, Default)]
 struct SearchState {
@@ -392,6 +393,8 @@ fn render_numbered_editor(
     let gutter_width = gutter_width(ui, text);
     let editor_id = ui.make_persistent_id("body");
     ui.horizontal_top(|ui| {
+        ui.visuals_mut().text_cursor.stroke =
+            egui::Stroke::new(2.0_f32, egui::Color32::from_gray(200));
         let (gutter, _) =
             ui.allocate_exact_size(egui::vec2(gutter_width, 0.0), egui::Sense::hover());
         let desired_rows = markdown_editor_desired_rows(text);
@@ -416,6 +419,28 @@ fn render_numbered_editor(
             .desired_width(f32::INFINITY)
             .desired_rows(desired_rows)
             .show(ui);
+        //
+        if let Some(range) = output.cursor_range {
+            let row = output
+                .galley
+                .pos_from_cursor(range.primary)
+                .translate(output.galley_pos.to_vec2());
+            // Trim egui's extra caret height, preserving its native blinking and focus handling.
+            ui.ctx().graphics_mut(|graphics| {
+                let shapes = graphics.entry(ui.layer_id());
+                for index in highlight.0 + 1..shapes.next_idx().0 {
+                    shapes.mutate_shape(egui::layers::ShapeIdx(index), |shape| {
+                        if let egui::Shape::LineSegment { points, stroke } = &mut shape.shape
+                            && *stroke == ui.visuals().text_cursor.stroke
+                        {
+                            points[0].y = row.top();
+                            points[1].y = row.bottom();
+                        }
+                    });
+                }
+            });
+        }
+        //
         let editor_rect = output.response.rect.union(gutter);
         ui.painter().set(
             background,
@@ -459,7 +484,7 @@ fn render_numbered_editor(
                 number.to_string(),
                 font.clone(),
                 if active {
-                    ui.visuals().text_color()
+                    EDITOR_ACTIVE_TEXT
                 } else {
                     TEXT_MUTED
                 },
@@ -1119,6 +1144,54 @@ fn line_numbers_follow_logical_lines_including_empty_and_wrapped_lines() {
         documents[1].file.collapsed = true;
         assert_eq!(render_markdown(ui, &mut documents), (false, None));
     });
+}
+
+#[cfg(test)]
+#[test]
+fn editor_caret_matches_text_row_height() {
+    for text in [
+        "",
+        "first\nsecond",
+        "a long line that wraps across multiple rows",
+        "last\n",
+    ] {
+        let context = egui::Context::default();
+        let mut text = text.to_owned();
+        let mut row_height = 0.0;
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            ui.set_width(120.0);
+            ui.visuals_mut().text_cursor.blink = false;
+            let font = egui::TextStyle::Monospace.resolve(ui.style());
+            row_height = ui.fonts_mut(|fonts| fonts.row_height(&font));
+            let id = ui.make_persistent_id("body");
+            ui.memory_mut(|memory| memory.request_focus(id));
+            let mut state = egui::text_edit::TextEditState::default();
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::one(
+                    egui::text::CCursor::new(text.chars().count()),
+                )));
+            state.store(ui.ctx(), id);
+            render_numbered_editor(ui, &mut text, &SearchState::default(), false);
+        });
+        let caret = output
+            .shapes
+            .iter()
+            .find_map(|shape| {
+                if let egui::Shape::LineSegment { points, stroke } = &shape.shape {
+                    (stroke.width == 2.0 && stroke.color == egui::Color32::from_gray(160))
+                        .then_some(points)
+                } else {
+                    None
+                }
+            })
+            .expect("focused editor paints a caret");
+        assert!(
+            (caret[1].y - caret[0].y - row_height.round()).abs() < 0.1,
+            "text {text:?}: caret height {}, row height {row_height}",
+            caret[1].y - caret[0].y
+        );
+    }
 }
 
 #[cfg(test)]
